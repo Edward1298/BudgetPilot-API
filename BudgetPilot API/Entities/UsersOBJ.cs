@@ -2,8 +2,8 @@
 
 namespace BudgetPilot_API.Entities
 {
-    [Table("users")] // tabla en minúscula como está en PostgreSQL
-    public class UsersOBJ
+    [Table("users")] 
+    public class UsersOBJ // This obj is used to map the database table "users" to a C# class. It represents a user entity in the application.
     {
         [Column("id")]
         public Guid Id { get; set; }
@@ -14,10 +14,10 @@ namespace BudgetPilot_API.Entities
         [Column("email")]
         public string Email { get; set; }
 
-        [Column("password_hash")] // snake_case como está en PostgreSQL
+        [Column("password_hash")] 
         public string PasswordHash { get; set; }
 
-        [Column("created_at")] // snake_case como está en PostgreSQL
+        [Column("created_at")] 
         public DateTime CreatedAt { get; set; }
     }
 }
