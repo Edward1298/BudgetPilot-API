@@ -5,10 +5,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BudgetPilot_API</RootNamespace>
+    <UserSecretsId>26844728-7cd6-43a9-ad05-d0f2b0292cb3</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="supabase-csharp" Version="0.16.2" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="10.1.5" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.1.5" />
   </ItemGroup>
 
 </Project>
