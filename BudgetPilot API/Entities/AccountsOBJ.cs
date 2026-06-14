@@ -29,14 +29,14 @@ namespace BudgetPilot_API.Entities
         /// Gets or sets the human-readable label for the account (e.g. "BBVA Debit").
         /// </summary>
         [Column("name")]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the type of the account.
         /// Valid values are Cash, Credit Card, and Bank Account.
         /// </summary>
         [Column("type")]
-        public string Type { get; set; }
+        public string Type { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the current balance of the account.

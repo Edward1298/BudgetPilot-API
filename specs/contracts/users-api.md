@@ -149,18 +149,21 @@ Authenticates a user with email and password. Returns a JWT access token on succ
 
 ### 2.3 List Users `GET /api/v1/users`
 
-Returns users with optional filters. Useful for searching by name or email.
+Returns a paginated list of users with optional filters. Useful for searching by name or email.
 
 **Auth:** Bearer JWT (required)
 
 **Query Parameters**
 
-| Param    | Type   | Required | Default | Description              |
-|----------|--------|----------|---------|--------------------------|
-| name     | string | no       | —       | Partial match on name    |
-| email    | string | no       | —       | Partial match on email   |
+| Param    | Type    | Required | Default | Description              |
+|----------|---------|----------|---------|--------------------------|
+| name     | string  | no       | —       | Partial match on name    |
+| email    | string  | no       | —       | Partial match on email   |
+| page     | integer | no       | 1       | Page number (1-based)    |
+| pageSize | integer | no       | 20      | Items per page (1–100)   |
 
 > If both `name` and `email` are provided, results must match both filters (AND logic).
+> Results are ordered by `createdAt` descending (newest first).
 
 **Response `200 OK`**
 ```json
@@ -172,7 +175,10 @@ Returns users with optional filters. Useful for searching by name or email.
       "email": "john@example.com",
       "createdAt": "2026-06-11T10:00:00Z"
     }
-  ]
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 1
 }
 ```
 
@@ -233,9 +239,10 @@ Returns the profile of the currently authenticated user. The user ID is inferred
 
 **Error Responses**
 
-| Code | When                               |
-|------|------------------------------------|
-| 401  | Missing / invalid / expired JWT    |
+| Code | When                                                    |
+|------|---------------------------------------------------------|
+| 401  | Missing / invalid / expired JWT                         |
+| 404  | User from JWT no longer exists in the database          |
 
 ---
 
@@ -284,9 +291,11 @@ Add a `Jwt` section (gitignored, use a key at least 32 characters):
 1. **Password hashing** — registration hashes with `BCrypt.Net.BCrypt.HashPassword()`. Login verifies with `BCrypt.Net.BCrypt.Verify()`. Never re-hash and compare strings.
 2. **PasswordHash isolation** — the `PasswordHash` property on `UsersOBJ` must have `[JsonIgnore]` so it is never serialized in any API response.
 3. **Email uniqueness** — check for existing email before insert. The database `UNIQUE` constraint on `email` serves as the final safety net.
-4. **Error envelope** — all error responses follow `{ statusCode, message, errors[] }`. On non-validation errors (401, 409), `errors` is an empty array `[]`.
-5. **Route migration** — the existing `[Route("api/[controller]")]` must be changed to `[Route("api/v1/[controller]")]`.
-6. **No refresh tokens** — the JWT issued at login is a single access token. Refresh token logic is deferred to future scope.
+4. **Email normalization** — emails MUST be trimmed and lowercased before storage and before comparison (login and duplicate check). This prevents `John@Example.com` and `john@example.com` from being treated as different users.
+5. **Error envelope** — all error responses follow `{ statusCode, message, errors[] }`. On non-validation errors (401, 409), `errors` is an empty array `[]`.
+6. **Route migration** — the existing `[Route("api/[controller]")]` must be changed to `[Route("api/v1/[controller]")]`.
+7. **No refresh tokens** — the JWT issued at login is a single access token. Refresh token logic is deferred to future scope.
+8. **Request body binding** — all POST endpoints MUST use `[FromBody]` on the DTO parameter to ensure correct model binding.
 
 ---
 
@@ -306,13 +315,20 @@ Add a `Jwt` section (gitignored, use a key at least 32 characters):
 | `Controllers/UsersController.cs` | Replace existing GET/POST with 5 endpoints. Update route to `api/v1/[controller]`. Add `[Authorize]` on protected endpoints. Error envelope on all responses. |
 | `Program.cs` | Add JWT options binding, `AddAuthentication().AddJwtBearer()`, `app.UseAuthentication()`. |
 
+## 8. Files to Delete
+
+| File | Reason |
+|------|--------|
+| `Dtos/UsersDTO.cs` | Replaced by `RegisterDTO.cs` (registration) and `LoginDTO.cs` (login). The old combined DTO is no longer used by any endpoint. |
+
 ---
 
-## 8. Implementation Order
+## 9. Implementation Order
 
 1. **Create DTOs** — `LoginDTO.cs` and `RegisterDTO.cs`
 2. **Update entity** — Add `[JsonIgnore]` to `UsersOBJ.PasswordHash`
 3. **Rewrite service** — Implement Register, Login, GetUsers (with filters), GetUserById, GetCurrentUser
 4. **Rewrite controller** — v1 route, 5 endpoints, auth attributes, error envelope
 5. **Configure JWT** — Program.cs middleware and appsettings
-6. **Run `dotnet build`** — verify zero errors
+6. **Delete obsolete DTO** — Remove `UsersDTO.cs`
+7. **Run `dotnet build`** — verify zero errors

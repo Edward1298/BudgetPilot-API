@@ -14,7 +14,7 @@ namespace BudgetPilot_API.Dtos
         /// </summary>
         [Required(ErrorMessage = "Name is required.")]
         [MaxLength(100, ErrorMessage = "Name must not exceed 100 characters.")]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the type of the account.
@@ -23,7 +23,7 @@ namespace BudgetPilot_API.Dtos
         [Required(ErrorMessage = "Type is required.")]
         [RegularExpression("^(cash|creditCard|bankAccount)$",
             ErrorMessage = "Type must be one of: cash, creditCard, bankAccount.")]
-        public string Type { get; set; }
+        public string Type { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the current balance of the account.

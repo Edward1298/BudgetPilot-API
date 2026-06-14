@@ -1,28 +1,213 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using BudgetPilot_API.Dtos;
 
+/// <summary>
+/// Handles HTTP requests for user management including registration,
+/// authentication, and profile retrieval.
+/// </summary>
 [ApiController]
-[Route("api/[controller]")] // This attribute defines the route for the controller. It means that the controller will handle requests sent to "api/users".
-public class UsersController : ControllerBase // This class is a controller in an ASP.NET Core Web API application. It is responsible for handling HTTP requests related to users, such as retrieving user data or creating new users. The controller uses the UserService to perform the necessary business logic and interacts with the database through the AppDbContext.
+[Route("api/v1/[controller]")]
+public class UsersController : ControllerBase
 {
-    private readonly UserService _userService; // This is a private field that holds a reference to the UserService. The UserService is responsible for handling the business logic related to users, such as retrieving user data from the database or creating new users.
+    private readonly UserService _userService;
 
-    public UsersController(UserService userService) // This is the constructor for the UsersController. It takes a UserService as a parameter and assigns it to the private field _userService. This allows the controller to use the UserService to perform operations related to users.
+    /// <summary>
+    /// Initializes a new instance of the <see cref="UsersController"/> class
+    /// with the specified user service.
+    /// </summary>
+    /// <param name="userService">The service that provides user business logic.</param>
+    public UsersController(UserService userService)
     {
-        _userService = userService; 
+        _userService = userService;
     }
 
-    [HttpGet] // This attribute indicates that this method will handle HTTP GET requests. When a GET request is sent to "api/users", this method will be invoked.
-    public async Task<IActionResult> GetUsers() // This method is responsible for handling GET requests to retrieve user data. It calls the GetUsers method of the UserService to get a list of users from the database, and then returns the list of users in the response using the Ok() method, which indicates a successful response with a status code of 200.
+    /// <summary>
+    /// Registers a new user account. The password is hashed with BCrypt before storage.
+    /// Returns 409 if the email is already registered.
+    /// </summary>
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterDTO dto)
     {
-        var users = await _userService.GetUsers();
-        return Ok(users);
+        if (!ModelState.IsValid)
+            return ValidationError();
+
+        try
+        {
+            var user = await _userService.Register(dto);
+            return CreatedAtAction(
+                nameof(GetUserById),
+                new { id = user.Id },
+                user);
+        }
+        catch (InvalidOperationException)
+        {
+            return Conflict(new
+            {
+                statusCode = 409,
+                message = "A user with this email already exists.",
+                errors = Array.Empty<object>()
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new
+            {
+                statusCode = 400,
+                message = "Validation failed.",
+                errors = new[]
+                {
+                    new { field = "name", message = ex.Message }
+                }
+            });
+        }
     }
 
-    [HttpPost] // This attribute indicates that this method will handle HTTP POST requests. When a POST request is sent to "api/users", this method will be invoked.
-    public async Task<IActionResult> CreateUser(UsersDTO user) // This method is responsible for handling POST requests to create a new user. It takes a UsersDTO object as a parameter, which contains the data for the new user. The method calls the CreateUser method of the UserService to create a new user in the database, and then returns the created user in the response using the Ok() method, which indicates a successful response with a status code of 200.
+    /// <summary>
+    /// Authenticates a user with email and password.
+    /// Returns a JWT access token on success, or 401 if credentials are invalid.
+    /// </summary>
+    [HttpPost("login")]
+    public async Task<IActionResult> Login([FromBody] LoginDTO dto)
     {
-        var createdUser = await _userService.CreateUser(user);
-        return Ok(createdUser);
+        if (!ModelState.IsValid)
+            return ValidationError();
+
+        var result = await _userService.Login(dto);
+
+        if (result == null)
+        {
+            return Unauthorized(new
+            {
+                statusCode = 401,
+                message = "Invalid email or password.",
+                errors = Array.Empty<object>()
+            });
+        }
+
+        return Ok(new
+        {
+            token = result.Value.Token,
+            tokenType = result.Value.TokenType,
+            expiresAt = result.Value.ExpiresAt
+        });
+    }
+
+    /// <summary>
+    /// Returns a paginated list of users, optionally filtered by partial
+    /// name and/or email matches. Requires JWT authentication.
+    /// </summary>
+    [HttpGet]
+    [Authorize]
+    public async Task<IActionResult> GetUsers(
+        [FromQuery] string? name = null,
+        [FromQuery] string? email = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var (items, totalCount) = await _userService.GetUsers(
+            name, email, page, pageSize);
+
+        return Ok(new
+        {
+            data = items,
+            page,
+            pageSize,
+            totalCount
+        });
+    }
+
+    /// <summary>
+    /// Retrieves a single user by their unique identifier.
+    /// Requires JWT authentication. Returns 404 if the user is not found.
+    /// </summary>
+    [HttpGet("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> GetUserById(Guid id)
+    {
+        var user = await _userService.GetUserById(id);
+
+        if (user == null)
+        {
+            return NotFound(new
+            {
+                statusCode = 404,
+                message = "User not found.",
+                errors = Array.Empty<object>()
+            });
+        }
+
+        return Ok(user);
+    }
+
+    /// <summary>
+    /// Returns the profile of the currently authenticated user.
+    /// The user identifier is extracted from the JWT token claims.
+    /// Returns 404 if the user no longer exists in the database.
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> GetMe()
+    {
+        var userId = GetUserId();
+        if (userId == null)
+        {
+            return Unauthorized(new
+            {
+                statusCode = 401,
+                message = "Authentication required.",
+                errors = Array.Empty<object>()
+            });
+        }
+
+        var user = await _userService.GetUserById(userId.Value);
+
+        if (user == null)
+        {
+            return NotFound(new
+            {
+                statusCode = 404,
+                message = "User not found.",
+                errors = Array.Empty<object>()
+            });
+        }
+
+        return Ok(user);
+    }
+
+    /// <summary>
+    /// Extracts the authenticated user's identifier from the JWT claims.
+    /// </summary>
+    /// <returns>
+    /// The user's GUID if the claim is present and valid; otherwise, <see langword="null" />.
+    /// </returns>
+    private Guid? GetUserId()
+    {
+        var claim = User.FindFirst(
+            System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var userId))
+            return null;
+
+        return userId;
+    }
+
+    /// <summary>
+    /// Returns a 400 Bad Request response with validation errors extracted from
+    /// the ModelState, formatted in the standard error envelope.
+    /// </summary>
+    private IActionResult ValidationError()
+    {
+        var errors = ModelState
+            .SelectMany(entry => entry.Value!.Errors
+                .Select(error => new { field = entry.Key, message = error.ErrorMessage }))
+            .ToArray();
+
+        return BadRequest(new
+        {
+            statusCode = 400,
+            message = "Validation failed.",
+            errors
+        });
     }
 }

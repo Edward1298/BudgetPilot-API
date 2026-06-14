@@ -13,12 +13,12 @@ namespace BudgetPilot_API.Dtos
         /// </summary>
         [Required(ErrorMessage = "Email is required.")]
         [EmailAddress(ErrorMessage = "A valid email address is required.")]
-        public string Email { get; set; }
+        public string Email { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the plain-text password used for authentication.
         /// </summary>
         [Required(ErrorMessage = "Password is required.")]
-        public string Password { get; set; }
+        public string Password { get; set; } = string.Empty;
     }
 }
