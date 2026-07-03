@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BudgetPilot_API.Dtos;
+using System.Text.Json;
 
 /// <summary>
 /// Handles HTTP requests for user management including registration,
@@ -194,13 +195,17 @@ public class UsersController : ControllerBase
 
     /// <summary>
     /// Returns a 400 Bad Request response with validation errors extracted from
-    /// the ModelState, formatted in the standard error envelope.
+    /// the ModelState, formatted in the standard error envelope with camelCase field names.
     /// </summary>
     private IActionResult ValidationError()
     {
         var errors = ModelState
             .SelectMany(entry => entry.Value!.Errors
-                .Select(error => new { field = entry.Key, message = error.ErrorMessage }))
+                .Select(error => new
+                {
+                    field = JsonNamingPolicy.CamelCase.ConvertName(entry.Key),
+                    message = error.ErrorMessage
+                }))
             .ToArray();
 
         return BadRequest(new

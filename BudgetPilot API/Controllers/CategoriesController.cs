@@ -4,32 +4,32 @@ using BudgetPilot_API.Dtos;
 using System.Text.Json;
 
 /// <summary>
-/// Handles HTTP requests for account management including listing, retrieval,
-/// creation, update, and deletion of financial accounts.
+/// Handles HTTP requests for category management including listing, retrieval,
+/// creation, update, and deletion of income/expense categories.
 /// </summary>
 [ApiController]
 [Authorize]
 [Route("api/v1/[controller]")]
-public class AccountsController : ControllerBase
+public class CategoriesController : ControllerBase
 {
-    private readonly AccountsService _accountsService;
+    private readonly CategoriesService _categoriesService;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="AccountsController"/> class
-    /// with the specified accounts service.
+    /// Initializes a new instance of the <see cref="CategoriesController"/> class
+    /// with the specified categories service.
     /// </summary>
-    /// <param name="accountsService">The service that provides account business logic.</param>
-    public AccountsController(AccountsService accountsService)
+    /// <param name="categoriesService">The service that provides category business logic.</param>
+    public CategoriesController(CategoriesService categoriesService)
     {
-        _accountsService = accountsService;
+        _categoriesService = categoriesService;
     }
 
     /// <summary>
-    /// Returns a paginated list of accounts belonging to the authenticated user,
+    /// Returns a paginated list of categories belonging to the authenticated user,
     /// optionally filtered by type and/or name.
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetAccounts(
+    public async Task<IActionResult> GetCategories(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? type = null,
@@ -39,7 +39,7 @@ public class AccountsController : ControllerBase
         if (userId == null)
             return UnauthorizedError();
 
-        var (items, totalCount) = await _accountsService.GetAccounts(
+        var (items, totalCount) = await _categoriesService.GetCategories(
             userId.Value, page, pageSize, type, search);
 
         return Ok(new
@@ -52,32 +52,32 @@ public class AccountsController : ControllerBase
     }
 
     /// <summary>
-    /// Retrieves a single account by its unique identifier.
-    /// Returns 403 if the account belongs to a different user.
+    /// Retrieves a single category by its unique identifier.
+    /// Returns 403 if the category belongs to a different user.
     /// </summary>
     [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetAccountById(Guid id)
+    public async Task<IActionResult> GetCategoryById(Guid id)
     {
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
 
-        var account = await _accountsService.GetAccountById(id);
+        var category = await _categoriesService.GetCategoryById(id);
 
-        if (account == null)
-            return NotFoundError("Account not found.");
+        if (category == null)
+            return NotFoundError("Category not found.");
 
-        if (account.UserId != userId.Value)
-            return ForbiddenError("You do not have access to this account.");
+        if (category.UserId != userId.Value)
+            return ForbiddenError("You do not have access to this category.");
 
-        return Ok(account);
+        return Ok(category);
     }
 
     /// <summary>
-    /// Creates a new financial account for the authenticated user.
+    /// Creates a new income/expense category for the authenticated user.
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> CreateAccount([FromBody] AccountsDTO dto)
+    public async Task<IActionResult> CreateCategory([FromBody] CategoriesDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
@@ -86,23 +86,27 @@ public class AccountsController : ControllerBase
         if (!ModelState.IsValid)
             return ValidationError();
 
-        try
+        var (category, isConflict) = await _categoriesService.CreateCategory(dto, userId.Value);
+
+        if (isConflict)
         {
-            var account = await _accountsService.CreateAccount(dto, userId.Value);
-            return CreatedAtAction(nameof(GetAccountById), new { id = account.Id }, account);
+            return Conflict(new
+            {
+                statusCode = 409,
+                message = "A category with this name and type already exists.",
+                errors = Array.Empty<object>()
+            });
         }
-        catch (ArgumentException ex)
-        {
-            return ValidationError(ex.Message, "balance");
-        }
+
+        return CreatedAtAction(nameof(GetCategoryById), new { id = category!.Id }, category);
     }
 
     /// <summary>
-    /// Fully replaces an existing account with the provided values.
-    /// Returns 403 if the account belongs to a different user.
+    /// Fully replaces an existing category with the provided values.
+    /// Returns 403 if the category belongs to a different user.
     /// </summary>
     [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateAccount(Guid id, [FromBody] AccountsDTO dto)
+    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] CategoriesDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
@@ -111,53 +115,56 @@ public class AccountsController : ControllerBase
         if (!ModelState.IsValid)
             return ValidationError();
 
-        try
-        {
-            var account = await _accountsService.UpdateAccount(id, dto, userId.Value);
+        var (category, isConflict) = await _categoriesService.UpdateCategory(id, dto, userId.Value);
 
-            if (account == null)
+        if (isConflict)
+        {
+            return Conflict(new
             {
-                var exists = await _accountsService.GetAccountById(id);
-                if (exists != null && exists.UserId != userId.Value)
-                    return ForbiddenError("You do not have access to this account.");
-
-                return NotFoundError("Account not found.");
-            }
-
-            return Ok(account);
+                statusCode = 409,
+                message = "A category with this name and type already exists.",
+                errors = Array.Empty<object>()
+            });
         }
-        catch (ArgumentException ex)
+
+        if (category == null)
         {
-            return ValidationError(ex.Message, "balance");
+            var exists = await _categoriesService.GetCategoryById(id);
+            if (exists != null && exists.UserId != userId.Value)
+                return ForbiddenError("You do not have access to this category.");
+
+            return NotFoundError("Category not found.");
         }
+
+        return Ok(category);
     }
 
     /// <summary>
-    /// Permanently deletes an account from the database.
-    /// Returns 403 if the account belongs to a different user.
-    /// Returns 409 if the account has linked transactions.
+    /// Permanently deletes a category from the database.
+    /// Returns 403 if the category belongs to a different user.
+    /// Returns 409 if the category has linked transactions.
     /// </summary>
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteAccount(Guid id)
+    public async Task<IActionResult> DeleteCategory(Guid id)
     {
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
 
-        var (deleted, hasConflict) = await _accountsService.DeleteAccount(id, userId.Value);
+        var (deleted, hasConflict) = await _categoriesService.DeleteCategory(id, userId.Value);
 
         if (hasConflict)
         {
-            return ConflictError("Account has linked transactions and cannot be deleted.");
+            return ConflictError("Category has linked transactions and cannot be deleted.");
         }
 
         if (!deleted)
         {
-            var exists = await _accountsService.GetAccountById(id);
+            var exists = await _categoriesService.GetCategoryById(id);
             if (exists != null && exists.UserId != userId.Value)
-                return ForbiddenError("You do not have access to this account.");
+                return ForbiddenError("You do not have access to this category.");
 
-            return NotFoundError("Account not found.");
+            return NotFoundError("Category not found.");
         }
 
         return NoContent();
@@ -231,33 +238,21 @@ public class AccountsController : ControllerBase
 
     /// <summary>
     /// Returns a 400 Bad Request response with validation errors extracted from
-    /// the ModelState or a custom field error, formatted in the standard error envelope
-    /// with camelCase field names.
+    /// the ModelState, formatted in the standard error envelope with camelCase field names.
     /// </summary>
-    private IActionResult ValidationError(string? customMessage = null, string? field = null)
+    private IActionResult ValidationError()
     {
         var errors = new List<object>();
 
-        if (customMessage != null && field != null)
+        foreach (var entry in ModelState)
         {
-            errors.Add(new
+            foreach (var error in entry.Value.Errors)
             {
-                field = JsonNamingPolicy.CamelCase.ConvertName(field),
-                message = customMessage
-            });
-        }
-        else
-        {
-            foreach (var entry in ModelState)
-            {
-                foreach (var error in entry.Value.Errors)
+                errors.Add(new
                 {
-                    errors.Add(new
-                    {
-                        field = JsonNamingPolicy.CamelCase.ConvertName(entry.Key),
-                        message = error.ErrorMessage
-                    });
-                }
+                    field = JsonNamingPolicy.CamelCase.ConvertName(entry.Key),
+                    message = error.ErrorMessage
+                });
             }
         }
 

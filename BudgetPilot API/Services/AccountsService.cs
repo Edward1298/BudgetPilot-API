@@ -132,32 +132,33 @@ public class AccountsService
     }
 
     /// <summary>
-    /// Permanently deletes an account from the database after verifying ownership.
+    /// Permanently deletes an account from the database after verifying ownership
+    /// and checking for linked transactions.
     /// </summary>
     /// <param name="id">The unique identifier of the account to delete.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
     /// <returns>
-    /// <see langword="true" /> if the account was found and deleted;
-    /// otherwise, <see langword="false" />.
+    /// A tuple indicating whether the account was deleted and whether it has
+    /// linked transactions that prevent deletion.
     /// </returns>
-    public async Task<bool> DeleteAccount(Guid id, Guid userId)
+    public async Task<(bool Deleted, bool HasConflict)> DeleteAccount(Guid id, Guid userId)
     {
-        // TODO: When Transactions module is implemented, check for linked transactions
-        // and return a conflict indicator if any exist. The controller should return 409.
-        //   bool hasTransactions = await _context.Transactions
-        //       .AnyAsync(t => t.AccountId == id);
-        //   if (hasTransactions) return false;
+        var hasTransactions = await _context.Transactions
+            .AnyAsync(t => t.AccountId == id);
+
+        if (hasTransactions)
+            return (false, true);
 
         var account = await _context.Accounts
             .FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
 
         if (account == null)
-            return false;
+            return (false, false);
 
         _context.Accounts.Remove(account);
         await _context.SaveChangesAsync();
 
-        return true;
+        return (true, false);
     }
 
     /// <summary>

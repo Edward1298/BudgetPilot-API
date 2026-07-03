@@ -4,43 +4,47 @@ using BudgetPilot_API.Dtos;
 using System.Text.Json;
 
 /// <summary>
-/// Handles HTTP requests for account management including listing, retrieval,
-/// creation, update, and deletion of financial accounts.
+/// Handles HTTP requests for transaction management including listing, retrieval,
+/// creation, update, and deletion of financial transactions.
 /// </summary>
 [ApiController]
 [Authorize]
 [Route("api/v1/[controller]")]
-public class AccountsController : ControllerBase
+public class TransactionsController : ControllerBase
 {
-    private readonly AccountsService _accountsService;
+    private readonly TransactionsService _transactionsService;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="AccountsController"/> class
-    /// with the specified accounts service.
+    /// Initializes a new instance of the <see cref="TransactionsController"/> class
+    /// with the specified transactions service.
     /// </summary>
-    /// <param name="accountsService">The service that provides account business logic.</param>
-    public AccountsController(AccountsService accountsService)
+    /// <param name="transactionsService">The service that provides transaction business logic.</param>
+    public TransactionsController(TransactionsService transactionsService)
     {
-        _accountsService = accountsService;
+        _transactionsService = transactionsService;
     }
 
     /// <summary>
-    /// Returns a paginated list of accounts belonging to the authenticated user,
-    /// optionally filtered by type and/or name.
+    /// Returns a paginated list of transactions belonging to the authenticated user,
+    /// optionally filtered by type, account, category, date range, and/or description.
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetAccounts(
+    public async Task<IActionResult> GetTransactions(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? type = null,
+        [FromQuery] Guid? accountId = null,
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] DateOnly? from = null,
+        [FromQuery] DateOnly? to = null,
         [FromQuery] string? search = null)
     {
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
 
-        var (items, totalCount) = await _accountsService.GetAccounts(
-            userId.Value, page, pageSize, type, search);
+        var (items, totalCount) = await _transactionsService.GetTransactions(
+            userId.Value, page, pageSize, type, accountId, categoryId, from, to, search);
 
         return Ok(new
         {
@@ -52,32 +56,33 @@ public class AccountsController : ControllerBase
     }
 
     /// <summary>
-    /// Retrieves a single account by its unique identifier.
-    /// Returns 403 if the account belongs to a different user.
+    /// Retrieves a single transaction by its unique identifier.
+    /// Returns 403 if the transaction belongs to a different user.
     /// </summary>
     [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetAccountById(Guid id)
+    public async Task<IActionResult> GetTransactionById(Guid id)
     {
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
 
-        var account = await _accountsService.GetAccountById(id);
+        var transaction = await _transactionsService.GetTransactionById(id);
 
-        if (account == null)
-            return NotFoundError("Account not found.");
+        if (transaction == null)
+            return NotFoundError("Transaction not found.");
 
-        if (account.UserId != userId.Value)
-            return ForbiddenError("You do not have access to this account.");
+        if (transaction.UserId != userId.Value)
+            return ForbiddenError("You do not have access to this transaction.");
 
-        return Ok(account);
+        return Ok(transaction);
     }
 
     /// <summary>
-    /// Creates a new financial account for the authenticated user.
+    /// Creates a new transaction for the authenticated user and adjusts the
+    /// linked account's balance accordingly.
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> CreateAccount([FromBody] AccountsDTO dto)
+    public async Task<IActionResult> CreateTransaction([FromBody] TransactionsDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
@@ -88,76 +93,80 @@ public class AccountsController : ControllerBase
 
         try
         {
-            var account = await _accountsService.CreateAccount(dto, userId.Value);
-            return CreatedAtAction(nameof(GetAccountById), new { id = account.Id }, account);
-        }
-        catch (ArgumentException ex)
-        {
-            return ValidationError(ex.Message, "balance");
-        }
-    }
+            var transaction = await _transactionsService.CreateTransaction(dto, userId.Value);
 
-    /// <summary>
-    /// Fully replaces an existing account with the provided values.
-    /// Returns 403 if the account belongs to a different user.
-    /// </summary>
-    [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateAccount(Guid id, [FromBody] AccountsDTO dto)
-    {
-        var userId = GetUserId();
-        if (userId == null)
-            return UnauthorizedError();
-
-        if (!ModelState.IsValid)
-            return ValidationError();
-
-        try
-        {
-            var account = await _accountsService.UpdateAccount(id, dto, userId.Value);
-
-            if (account == null)
+            if (transaction == null)
             {
-                var exists = await _accountsService.GetAccountById(id);
-                if (exists != null && exists.UserId != userId.Value)
-                    return ForbiddenError("You do not have access to this account.");
-
-                return NotFoundError("Account not found.");
+                return NotFoundError(
+                    "Referenced account or category not found or does not belong to you.");
             }
 
-            return Ok(account);
+            return CreatedAtAction(
+                nameof(GetTransactionById), new { id = transaction.Id }, transaction);
         }
         catch (ArgumentException ex)
         {
-            return ValidationError(ex.Message, "balance");
+            return ValidationError(ex.Message, "type");
         }
     }
 
     /// <summary>
-    /// Permanently deletes an account from the database.
-    /// Returns 403 if the account belongs to a different user.
-    /// Returns 409 if the account has linked transactions.
+    /// Fully replaces an existing transaction with the provided values.
+    /// The transaction date is never modified. Returns 403 if the transaction
+    /// belongs to a different user.
     /// </summary>
-    [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteAccount(Guid id)
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> UpdateTransaction(Guid id, [FromBody] TransactionsDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
 
-        var (deleted, hasConflict) = await _accountsService.DeleteAccount(id, userId.Value);
+        if (!ModelState.IsValid)
+            return ValidationError();
 
-        if (hasConflict)
+        try
         {
-            return ConflictError("Account has linked transactions and cannot be deleted.");
+            var transaction = await _transactionsService.UpdateTransaction(id, dto, userId.Value);
+
+            if (transaction == null)
+            {
+                var exists = await _transactionsService.GetTransactionById(id);
+                if (exists != null && exists.UserId != userId.Value)
+                    return ForbiddenError("You do not have access to this transaction.");
+
+                return NotFoundError(
+                    "Transaction not found, or referenced account/category not found or does not belong to you.");
+            }
+
+            return Ok(transaction);
         }
+        catch (ArgumentException ex)
+        {
+            return ValidationError(ex.Message, "type");
+        }
+    }
+
+    /// <summary>
+    /// Permanently deletes a transaction and reverses its balance effect on the
+    /// linked account. Returns 403 if the transaction belongs to a different user.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteTransaction(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId == null)
+            return UnauthorizedError();
+
+        var deleted = await _transactionsService.DeleteTransaction(id, userId.Value);
 
         if (!deleted)
         {
-            var exists = await _accountsService.GetAccountById(id);
+            var exists = await _transactionsService.GetTransactionById(id);
             if (exists != null && exists.UserId != userId.Value)
-                return ForbiddenError("You do not have access to this account.");
+                return ForbiddenError("You do not have access to this transaction.");
 
-            return NotFoundError("Account not found.");
+            return NotFoundError("Transaction not found.");
         }
 
         return NoContent();
@@ -211,19 +220,6 @@ public class AccountsController : ControllerBase
         return NotFound(new
         {
             statusCode = 404,
-            message,
-            errors = Array.Empty<object>()
-        });
-    }
-
-    /// <summary>
-    /// Returns a 409 Conflict response in the standard error envelope format.
-    /// </summary>
-    private IActionResult ConflictError(string message)
-    {
-        return Conflict(new
-        {
-            statusCode = 409,
             message,
             errors = Array.Empty<object>()
         });

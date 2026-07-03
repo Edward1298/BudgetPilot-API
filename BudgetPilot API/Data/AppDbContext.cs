@@ -10,7 +10,7 @@ public class AppDbContext : DbContext // This class is a DbContext that represen
     // Define DbSet properties for each entity in the application. These properties represent the corresponding tables in the database and allow you to perform CRUD operations on those tables using Entity Framework Core.
     public DbSet<UsersOBJ> Users { get; set; }
     public DbSet<AccountsOBJ> Accounts { get; set; }
-    //public DbSet<Transaction> Transactions { get; set; }
-    //public DbSet<Category> Categories { get; set; }
-    //public DbSet<Budget> Budgets { get; set; }
+    public DbSet<CategoriesOBJ> Categories { get; set; }
+    public DbSet<TransactionsOBJ> Transactions { get; set; }
+    //public DbSet<BudgetsOBJ> Budgets { get; set; }
 }
