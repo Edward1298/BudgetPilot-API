@@ -1,12 +1,10 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql.EntityFrameworkCore.PostgreSQL;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 
-AppContext.SetSwitch("System.Net.Sockets.Socket.OSSupportsIPv6", false);
 var builder = WebApplication.CreateBuilder(args);
 
 // Servicios
@@ -37,13 +35,9 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(
+    options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        npgsqlOptions =>
-        {
-            npgsqlOptions.ExecutionStrategy(c => new NpgsqlRetryingExecutionStrategy(c));
-        }
-    ));
+        sqlOptions => sqlOptions.EnableRetryOnFailure()));
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 

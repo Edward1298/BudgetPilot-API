@@ -1,6 +1,6 @@
 # BudgetPilot API — Manual Smoke-Test Checklist
 
-> **Prerequisites:** A running API instance connected to a real database (e.g. Supabase). This checklist verifies things automation cannot easily assert, such as Swagger UI behavior, visual response inspection, and real network flow.
+> **Prerequisites:** A running API instance connected to the local SQL Server database. This checklist verifies things automation cannot easily assert, such as Swagger UI behavior, visual response inspection, and real network flow.
 
 ## 1. Swagger UI
 
@@ -70,4 +70,4 @@
 
 ---
 
-**Result:** ☐ Pass / ☐ Fail (requires Supabase to be unpaused)
+**Result:** ☐ Pass / ☐ Fail

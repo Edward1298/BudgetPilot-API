@@ -12,7 +12,6 @@ Before writing any code for this module, load these agent skills in order:
 | 1 | `aspnet-core` | Controller patterns, dependency injection, middleware pipeline, API conventions (`apis-minimal-and-controllers.md`), EF Core integration (`data-state-and-services.md`), auth (`security-and-identity.md`) |
 | 2 | `csharp-async` | All service methods and controller actions that touch the database MUST be async, return `Task<T>`, and never block with `.Result` or `.Wait()` |
 | 3 | `csharp-docs` | Every Controller, Service, DTO, and Entity class/member requires XML `<summary>` comments following the csharp-docs conventions |
-| 4 | `supabase-postgres-best-practices` | Query optimization, indexing strategy, and Supabase-specific considerations |
 
 ---
 
@@ -31,15 +30,15 @@ Mapped to the `accounts` table as defined in `specs/dbschema.md`.
 
 ### 1.1 `type` Values
 
-The `type` column stores descriptive text matching the product scope:
+The `type` column stores camelCase values validated by the API:
 
 | Value            | Description    |
 |------------------|----------------|
-| `Cash`           | Physical money |
-| `Credit Card`    | Credit card    |
-| `Bank Account`   | Bank account   |
+| `cash`           | Physical money |
+| `creditCard`     | Credit card    |
+| `bankAccount`    | Bank account   |
 
-> **Note:** The values above are human-readable as stored in the existing database (`dbschema.md`). The API accepts them as-is without transformation.
+> **Note:** The API accepts and stores these exact lowercase/camelCase values. They are serialized as-is in JSON responses.
 
 ---
 
@@ -128,8 +127,8 @@ Returns a paginated list of accounts belonging to the authenticated user.
 | Field   | Type            | Required | Validation                                |
 |---------|-----------------|----------|-------------------------------------------|
 | name    | string          | yes      | 1–100 characters, not whitespace-only     |
-| type    | string          | yes      | Must be a valid account type              |
-| balance | number (decimal)| no       | Defaults to `0`. Must be ≥ 0 for Cash and Bank Account |
+| type    | string          | yes      | Must be `cash`, `creditCard`, or `bankAccount` |
+| balance | number (decimal)| no       | Defaults to `0`. Must be ≥ 0 for `cash` and `bankAccount` |
 
 > **Note:** `userId` is extracted from the JWT token and assigned server-side. The client must never supply it.
 
@@ -183,8 +182,8 @@ Full replacement update. All required fields must be supplied.
 | Field   | Type            | Required | Validation                                |
 |---------|-----------------|----------|-------------------------------------------|
 | name    | string          | yes      | 1–100 characters, not whitespace-only     |
-| type    | string          | yes      | Must be a valid account type              |
-| balance | number (decimal)| yes      | Must be ≥ 0 for Cash and Bank Account     |
+| type    | string          | yes      | Must be `cash`, `creditCard`, or `bankAccount` |
+| balance | number (decimal)| yes      | Must be ≥ 0 for `cash` and `bankAccount`  |
 
 **Response `200 OK`**
 ```json
@@ -241,7 +240,7 @@ Permanently deletes the account from the database after verifying ownership.
 ## 4. Cross-Cutting Rules
 
 1. **Ownership isolation** — every endpoint scopes data to the authenticated user. `userId` is always inferred from the JWT.
-2. **Default balance** — for Cash and Bank Account, balance defaults to `0` and cannot be negative. For Credit Card, negative balance is allowed (representing debt).
+2. **Default balance** — for `cash` and `bankAccount`, balance defaults to `0` and cannot be negative. For `creditCard`, negative balance is allowed (representing debt).
 3. **Conflict detection (409)** — DELETE returns 409 if the account is referenced by at least one transaction. This check is pending the Transactions module implementation (currently marked as a TODO in the service).
 4. **Error envelope** — all error responses follow the shape `{ statusCode, message, errors[] }` where `errors` is an array of `{ field, message }` objects. On non‑validation errors (401, 403, 404, 409), `errors` is an empty array `[]`.
 5. **No soft delete** — the `accounts` table in the database does not have soft-delete columns. Deletion is permanent. Soft delete may be added as a future enhancement via a schema migration.

@@ -14,7 +14,6 @@ Before writing any code for this module, load these agent skills in order:
 | 1 | `aspnet-core` | Controller patterns, `[Authorize]` enforcement, DI registration (`program-and-pipeline.md`), API conventions (`apis-minimal-and-controllers.md`) |
 | 2 | `csharp-async` | All service methods and controller actions that touch the database MUST be async, return `Task<T>`, and never block with `.Result` or `.Wait()` |
 | 3 | `csharp-docs` | Every Controller, Service, DTO, and Entity class/member requires XML `<summary>` comments following the csharp-docs conventions |
-| 4 | `supabase-postgres-best-practices` | Query optimization, indexing strategy on `user_id`, pagination best practices |
 
 ---
 
@@ -276,7 +275,7 @@ Permanently deletes the category from the database after verifying ownership.
 
 | File | What changes |
 |------|-------------|
-| `BudgetPilot API/Data/AppDbContext.cs` | Uncomment / add `public DbSet<CategoriesOBJ> Categories { get; set; }`. Leave the `NpgsqlRetryingExecutionStrategy` configuration untouched. Do **not** run `dotnet ef migrations add` — schema is already in the DB. |
+| `BudgetPilot API/Data/AppDbContext.cs` | Uncomment / add `public DbSet<CategoriesOBJ> Categories { get; set; }`. Leave the `EnableRetryOnFailure()` configuration untouched. Do **not** run `dotnet ef migrations add` — schema is already in the DB. |
 | `BudgetPilot API/Program.cs` | Register `builder.Services.AddScoped<CategoriesService>();` next to the existing `AccountsService` registration. No auth or pipeline changes required — JWT is already wired from the Users module. |
 
 ---
@@ -286,7 +285,7 @@ Permanently deletes the category from the database after verifying ownership.
 1. Re-read `specs/dbschema.md` (the `categories` table section) and `specs/contracts/accounts-api.md` (reference for the established pattern).
 2. Create `Entities/CategoriesOBJ.cs` — four properties (`Id`, `UserId`, `Name`, `Type`) with `[Column]` attributes, `[JsonIgnore]` on `UserId`, XML docs. No `CreatedAt`.
 3. Create `Dtos/CategoriesDTO.cs` — `Name` and `Type` with validation attributes per the rules above. No `Id` (server-generated), no `UserId` (from JWT).
-4. Update `Data/AppDbContext.cs` — add the `Categories` DbSet. Preserve the retry strategy and existing DbSets.
+4. Update `Data/AppDbContext.cs` — add the `Categories` DbSet. Preserve the `EnableRetryOnFailure()` retry strategy and existing DbSets.
 5. Create `Services/CategoriesService.cs` — `GetCategories` (paged/filtered), `GetCategoryById`, `CreateCategory` (with uniqueness check → throw `'CategoryConflictException'` or return a sentinel; controller maps to 409), `UpdateCategory` (uniqueness check excluding self), `DeleteCategory` (with the transactions TODO). All async.
 6. Create `Controllers/CategoriesController.cs` — five `[Http*]` actions, `[Authorize]` on the class, `GetUserId()` + the four private error helpers. Map service conflict signals to `409` with `errors: []`.
 7. Register `CategoriesService` in `Program.cs` next to `AccountsService`.

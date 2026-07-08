@@ -14,7 +14,6 @@ Before writing any code for this module, load these agent skills in order:
 | 1 | `aspnet-core` | Controller patterns, `[Authorize]` enforcement, DI registration, EF Core integration (`data-state-and-services.md`) |
 | 2 | `csharp-async` | All service/controller methods touching the database MUST be async, return `Task<T>`, and never block with `.Result` or `.Wait()` |
 | 3 | `csharp-docs` | Every Controller, Service, DTO, and Entity class/member requires XML `<summary>` comments following the csharp-docs conventions |
-| 4 | `supabase-postgres-best-practices` | Indexing strategy on `user_id`, `account_id`, `category_id`; FK-index best practices; pagination patterns |
 
 > **Module dependency:** This contract assumes the Accounts and Categories modules are already implemented. The Transactions service verifies FK ownership against the `accounts` and `categories` tables, so their entities and DbSets must be present in `AppDbContext`. Shipping this module also activates the linked-transactions conflict checks (409) that the Accounts and Categories contracts defer as a TODO.
 
@@ -336,7 +335,7 @@ Permanently deletes the transaction and reverses its balance effect on the linke
   - `Amount` (`decimal`) — strictly positive.
   - `Type` (`string`) — `income` / `expense`.
   - `Description` (`string?`) — optional, max 500.
-  - `Date` (`DateOnly` recommended — Npgsql maps cleanly to PostgreSQL `date`) — server-set, immutable.
+  - `Date` (`DateOnly` — maps to SQL Server `date`) — server-set, immutable.
 - XML `<summary>` on the class and every property.
 - No `CreatedAt` — the table has no such column.
 - Suffix `OBJ` per AGENTS.md.
@@ -405,7 +404,7 @@ Permanently deletes the transaction and reverses its balance effect on the linke
 
 | File | What changes |
 |------|-------------|
-| `BudgetPilot API/Data/AppDbContext.cs` | Uncomment / add `public DbSet<TransactionsOBJ> Transactions { get; set; }`. Preserve the `NpgsqlRetryingExecutionStrategy` configuration and existing DbSets. Do **not** run `dotnet ef migrations add` — the table already exists in the DB. |
+| `BudgetPilot API/Data/AppDbContext.cs` | Uncomment / add `public DbSet<TransactionsOBJ> Transactions { get; set; }`. Preserve the `EnableRetryOnFailure()` configuration and existing DbSets. Do **not** run `dotnet ef migrations add` — the table already exists in the DB. |
 | `BudgetPilot API/Program.cs` | Register `builder.Services.AddScoped<TransactionsService>();` next to the existing `AccountsService` registration. No auth or pipeline changes — JWT is already wired from the Users module. |
 | `BudgetPilot API/Services/AccountsService.cs` | Activate the existing TODO in `DeleteAccount`: add `await _context.Transactions.AnyAsync(t => t.AccountId == id)` and return a conflict sentinel (e.g. `null` or a `(bool Deleted, bool HasConflict)` tuple) instead of deleting when linked transactions exist. The controller maps the conflict signal to `409`. |
 | `BudgetPilot API/Services/CategoriesService.cs` | Same linked-transactions check on `DeleteCategory`; return a conflict sentinel the controller maps to `409`. Activates the TODO the Categories contract leaves open. |

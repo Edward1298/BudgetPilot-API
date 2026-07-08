@@ -35,7 +35,7 @@ Before executing this plan, the MVP implementation must be complete:
 - Every entity (`UsersOBJ`, `AccountsOBJ`, `CategoriesOBJ`, `TransactionsOBJ`) is correctly mapped with `[Table]` and `[Column]` attributes and registered as a `DbSet` in `AppDbContext`. `EnsureCreated()` builds the schema from these mappings, so missing or misconfigured entities will surface here.
 - The application builds cleanly: `dotnet build "BudgetPilot API/BudgetPilot API.csproj"` succeeds.
 
-> **Note:** This plan deliberately uses SQLite in-memory and **does NOT** require Supabase to be running. Tests are fully isolated and leave zero artifacts behind. A live database is only required for the optional manual smoke checklist (Section 6), which can be deferred until Supabase is unpaused.
+> **Note:** This plan deliberately uses SQLite in-memory and **does NOT** require SQL Server to be running. Tests are fully isolated and leave zero artifacts behind. A live database is only required for the optional manual smoke checklist (Section 6).
 
 ---
 
@@ -99,7 +99,7 @@ Standard Microsoft pattern that lets `WebApplicationFactory<Program>` target the
 
 ### 5.1 Integration Tests (primary layer)
 
-Use `WebApplicationFactory<Program>` with a real `HttpClient` against the live HTTP pipeline. The test factory swaps the EF Core provider from Npgsql to SQLite in-memory and runs `EnsureCreated()` to build the schema from the entity model.
+Use `WebApplicationFactory<Program>` with a real `HttpClient` against the live HTTP pipeline. The test factory swaps the EF Core SQL Server provider for SQLite in-memory and runs `EnsureCreated()` to build the schema from the entity model.
 
 Each test class is responsible for registering a fresh user via `POST /api/v1/users/register`, logging in via `POST /api/v1/users/login`, and setting the Bearer token on the `HttpClient` before exercising the endpoints under test. The whole DB is scoped per `WebApplicationFactory` instance (or reset between tests via `EnsureDeleted` + `EnsureCreated`), so isolation is automatic.
 
@@ -122,7 +122,7 @@ protected override void ConfigureServices(IServiceCollection services)
 }
 ```
 
-> The `NpgsqlRetryingExecutionStrategy` is Npgsql-specific and is intentionally **not** registered for SQLite. It is a config concern, not business logic, so this is acceptable for the test surface.
+> The `EnableRetryOnFailure()` SQL Server retry strategy is provider-specific and is intentionally **not** registered for SQLite. It is a config concern, not business logic, so this is acceptable for the test surface.
 
 ### 5.2 Service-Level Tests (secondary layer)
 
@@ -195,7 +195,7 @@ Register → login → create account → create category → create transaction
 
 ## 7. Manual Smoke-Test Checklist
 
-> Requires a running API against some database. If Supabase is still paused, the manual smoke step can be deferred until it is unpaused — the automated suite is what proves correctness; the smoke checklist is a final human-verification gate. The checklist file is `specs/testing/manual-smoke-checklist.md`.
+> Requires a running API against a local SQL Server database. The automated suite is what proves correctness; the smoke checklist is a final human-verification gate. The checklist file is `specs/testing/manual-smoke-checklist.md`.
 
 Covers things automation can't easily check:
 - Swagger UI loads at `/swagger`, JWT bearer flow works in the UI.
@@ -270,15 +270,15 @@ The suite grows with each real bug encountered — not by guessing edge cases.
 11. **Write `manual-smoke-checklist.md`**.
 12. **Run `dotnet test`** (seconds, not minutes — no network) and iterate on failures.
 13. **Fix each bug found** via the triage workflow; add a regression test per bug.
-14. **Walk the manual smoke checklist** (deferred until Supabase is unpaused, if needed).
+14. **Walk the manual smoke checklist** against the local SQL Server database.
 15. **All green** → MVP declared stable.
 
 ---
 
 ## 11. Caveats & Notes
 
-- **SQLite type affinity:** SQLite uses dynamic typing, so PostgreSQL-specific column types (`date`, `numeric`, `uuid`) become SQLite affinity types (TEXT/NUMERIC). EF Core handles the conversions transparently in nearly all cases (`DateOnly` ↔ TEXT, `decimal` ↔ NUMERIC, `Guid` ↔ TEXT). The one thing these tests will **not** catch is PostgreSQL-specific SQL behavior, which the project largely avoids by relying on EF Core's abstractions. For a portfolio project this trade-off is well-justified.
-- **Retry strategy not exercised:** `NpgsqlRetryingExecutionStrategy` is Npgsql-specific and is not registered under SQLite. It is a configuration concern, not business logic.
+- **SQLite type affinity:** SQLite uses dynamic typing, so SQL Server-specific column types (`date`, `decimal`, `uniqueidentifier`) become SQLite affinity types (TEXT/NUMERIC). EF Core handles the conversions transparently in nearly all cases (`DateOnly` ↔ TEXT, `decimal` ↔ NUMERIC, `Guid` ↔ TEXT). The one thing these tests will **not** catch is SQL Server-specific SQL behavior, which the project largely avoids by relying on EF Core's abstractions. For a portfolio project this trade-off is well-justified.
+- **Retry strategy not exercised:** `EnableRetryOnFailure()` is SQL Server-specific and is not registered under SQLite. It is a configuration concern, not business logic.
 - **`budgets` table:** future scope per `PRODUCT.md`, not part of any contract. `EnsureCreated()` will simply not create it — correct behavior. No action needed.
 - **Speed:** the full suite runs in seconds since there's no network round-trip. Excellent for tight test-fix cycles.
 - **Repeatability:** the DB is created fresh per `WebApplicationFactory` instance; `totalCount` assertions are fully deterministic because the DB starts empty.
