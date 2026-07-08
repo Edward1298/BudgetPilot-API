@@ -6,10 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BudgetPilot_API.Tests.Integration;
 
-/// <summary>
-/// Factory that bootstraps the API with an in-memory SQLite database for isolated integration tests.
-/// Each factory instance owns a single SQLite in-memory connection that is disposed with the factory.
-/// </summary>
+    /// <summary>
+    /// Factory that bootstraps the API with an in-memory SQLite database for isolated integration tests.
+    /// Each factory instance owns a single SQLite in-memory connection that is disposed with the factory.
+    /// The production SQL Server registration is replaced so tests do not require a real SQL Server instance.
+    /// </summary>
 public class TestWebAppFactory : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection _connection;
@@ -25,7 +26,7 @@ public class TestWebAppFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Replaces the production Npgsql DbContext registration with a SQLite in-memory
+    /// Replaces the production SQL Server DbContext registration with a SQLite in-memory
     /// registration and ensures the schema is created from the entity model.
     /// </summary>
     /// <param name="builder">The web host builder used to configure the test server.</param>
@@ -36,7 +37,7 @@ public class TestWebAppFactory : WebApplicationFactory<Program>
             var providerNamespaces = new[]
             {
                 "Microsoft.EntityFrameworkCore",
-                "Npgsql.EntityFrameworkCore.PostgreSQL"
+                "Microsoft.EntityFrameworkCore.SqlServer"
             };
 
             bool IsEfDescriptor(ServiceDescriptor d)

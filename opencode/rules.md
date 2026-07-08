@@ -37,7 +37,7 @@ Maintain consistency with the existing codebase at all times:
 - **JSON Format:** All HTTP responses must be serialized in strict `camelCase`.
 - **Error Handling:** Failed endpoint responses must map to: `{ statusCode, message, errors[] }`.
 - **Password Security:** User passwords MUST always be hashed using the `BCrypt.Net-Next` library before being saved to the database. Never store plain-text passwords.
-- **EF Core:** When mapping new entities or relationships in `AppDbContext.cs`, preserve the configured retry strategy (`NpgsqlRetryingExecutionStrategy`). If a migration is required, alert the user before running any destructive commands.
+- **EF Core:** When mapping new entities or relationships in `AppDbContext.cs`, preserve the configured retry strategy (`EnableRetryOnFailure()`). If a migration is required, alert the user before running any destructive commands.
 - **Code Documentation:** Every method in Controllers, Services, DTOs, and Entity classes MUST include an XML summary comment explaining clearly what it does and why it exists. Use `/// <summary>` format. Comments must be written in English and describe behavior, not just repeat the method name.
 
   ```csharp
@@ -71,7 +71,10 @@ Maintain consistency with the existing codebase at all times:
 
 When executing a new API contract (i.e., implementing a new module endpoint), follow this mandatory pre-work checklist before writing any code:
 
-1. **Load the Supabase Postgres skill** — the project uses PostgreSQL on Supabase; load the skill to apply best practices for queries and schema design.
+1. **Load the relevant skills in order:**
+   - `aspnet-core` — controller patterns, DI, middleware, EF Core integration
+   - `csharp-async` — all I/O methods must be async and non-blocking
+   - `csharp-docs` — XML summary comments on public types and members
 2. **Read the foundational docs in order:**
    - `specs/dbschema.md` — verify the target table exists
    - `opencode/rules.md` — coding conventions and rules
@@ -83,4 +86,4 @@ When executing a new API contract (i.e., implementing a new module endpoint), fo
 At the start of writing a new contract, the agent MUST read `specs/dbschema.md` and check if the required table for the module already exists:
 
 - **If the table is defined in `dbschema.md` and exists in the database:** use it as the reference for creating the entity class, DTOs, service, and controller. Match the columns exactly as documented.
-- **If the table is NOT found in `dbschema.md` and does NOT exist in the database:** do NOT create the table yourself. Instead, return the raw SQL `CREATE TABLE` script to the user so they can execute it directly on the Supabase SQL Editor (supabase.com). Wait for the user to confirm the table is created before proceeding with the code.
+- **If the table is NOT found in `dbschema.md` and does NOT exist in the database:** do NOT create the table yourself. Instead, return the raw SQL `CREATE TABLE` script to the user so they can execute it directly in SQL Server Management Studio (SSMS). Wait for the user to confirm the table is created before proceeding with the code.
