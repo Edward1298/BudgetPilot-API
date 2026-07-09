@@ -21,7 +21,7 @@ public class CategoriesService
     }
 
     /// <summary>
-    /// Retrieves a paginated list of categories belonging to the specified user,
+    /// Retrieves a paginated list of active categories belonging to the specified user,
     /// optionally filtered by category type and/or a partial name match.
     /// </summary>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
@@ -34,7 +34,7 @@ public class CategoriesService
         Guid userId, int page, int pageSize, string? type, string? search)
     {
         var query = _context.Categories
-            .Where(c => c.UserId == userId);
+            .Where(c => c.UserId == userId && c.IsActive);
 
         if (!string.IsNullOrWhiteSpace(type))
             query = query.Where(c => c.Type == type);
@@ -54,18 +54,18 @@ public class CategoriesService
     }
 
     /// <summary>
-    /// Retrieves a single category by its unique identifier without applying the
+    /// Retrieves a single active category by its unique identifier without applying the
     /// user ownership filter. Ownership is verified separately by the caller
     /// to distinguish between 403 and 404 responses.
     /// </summary>
     /// <param name="id">The unique identifier of the category to retrieve.</param>
     /// <returns>
-    /// The matching category if found; otherwise, <see langword="null" />.
+    /// The matching active category if found; otherwise, <see langword="null" />.
     /// </returns>
     public async Task<CategoriesOBJ?> GetCategoryById(Guid id)
     {
         return await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
     }
 
     /// <summary>
@@ -106,10 +106,11 @@ public class CategoriesService
     /// <summary>
     /// Updates an existing category with new values after verifying ownership and
     /// ensuring the new name/type combination does not conflict with another
-    /// category belonging to the same user.
+    /// category belonging to the same user. Only non-null fields in the DTO are
+    /// applied to the category entity.
     /// </summary>
     /// <param name="id">The unique identifier of the category to update.</param>
-    /// <param name="dto">The updated category data provided by the client.</param>
+    /// <param name="dto">The partial update data provided by the client.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
     /// <returns>
     /// A tuple containing the updated category and a flag indicating whether
@@ -117,25 +118,32 @@ public class CategoriesService
     /// both values signal the not-found condition.
     /// </returns>
     public async Task<(CategoriesOBJ? Category, bool IsConflict)> UpdateCategory(
-        Guid id, CategoriesDTO dto, Guid userId)
+        Guid id, CategoryUpdateDTO dto, Guid userId)
     {
-        var duplicateExists = await _context.Categories
-            .AnyAsync(c => c.UserId == userId &&
-                           c.Id != id &&
-                           c.Name == dto.Name &&
-                           c.Type == dto.Type);
-
-        if (duplicateExists)
-            return (null, true);
-
         var category = await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
+            .FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId && c.IsActive);
 
         if (category == null)
             return (null, false);
 
-        category.Name = dto.Name;
-        category.Type = dto.Type;
+        var newName = dto.Name ?? category.Name;
+        var newType = dto.Type ?? category.Type;
+
+        var duplicateExists = await _context.Categories
+            .AnyAsync(c => c.UserId == userId &&
+                           c.Id != id &&
+                           c.Name == newName &&
+                           c.Type == newType &&
+                           c.IsActive);
+
+        if (duplicateExists)
+            return (null, true);
+
+        if (dto.Name != null)
+            category.Name = dto.Name;
+
+        if (dto.Type != null)
+            category.Type = dto.Type;
 
         await _context.SaveChangesAsync();
 
@@ -143,19 +151,21 @@ public class CategoriesService
     }
 
     /// <summary>
-    /// Permanently deletes a category from the database after verifying ownership
-    /// and checking for linked transactions.
+    /// Deletes a category from the database after verifying ownership and checking for
+    /// linked transactions. If the caller is an admin, performs a hard delete.
+    /// Otherwise, performs a soft delete by setting IsActive to false.
     /// </summary>
     /// <param name="id">The unique identifier of the category to delete.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
+    /// <param name="isAdmin">Whether the caller has admin privileges.</param>
     /// <returns>
     /// A tuple indicating whether the category was deleted and whether it has
     /// linked transactions that prevent deletion.
     /// </returns>
-    public async Task<(bool Deleted, bool HasConflict)> DeleteCategory(Guid id, Guid userId)
+    public async Task<(bool Deleted, bool HasConflict)> DeleteCategory(Guid id, Guid userId, bool isAdmin)
     {
         var hasTransactions = await _context.Transactions
-            .AnyAsync(t => t.CategoryId == id);
+            .AnyAsync(t => t.CategoryId == id && t.IsActive);
 
         if (hasTransactions)
             return (false, true);
@@ -166,7 +176,15 @@ public class CategoriesService
         if (category == null)
             return (false, false);
 
-        _context.Categories.Remove(category);
+        if (isAdmin)
+        {
+            _context.Categories.Remove(category);
+        }
+        else
+        {
+            category.IsActive = false;
+        }
+
         await _context.SaveChangesAsync();
 
         return (true, false);

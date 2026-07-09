@@ -39,6 +39,20 @@ namespace BudgetPilot_API.Entities
         public string PasswordHash { get; set; } = string.Empty;
 
         /// <summary>
+        /// Gets or sets the identifier of the role assigned to this user.
+        /// FK → roles(id). Determines authorization level (Admin or User).
+        /// </summary>
+        [Column("role_id")]
+        public Guid RoleId { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether this user is active.
+        /// Inactive users are excluded from queries (soft delete).
+        /// </summary>
+        [Column("is_active")]
+        public bool IsActive { get; set; } = true;
+
+        /// <summary>
         /// Gets or sets the UTC timestamp when the user was registered.
         /// </summary>
         [Column("created_at")]

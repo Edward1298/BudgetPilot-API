@@ -35,6 +35,9 @@ public class CategoriesController : ControllerBase
         [FromQuery] string? type = null,
         [FromQuery] string? search = null)
     {
+        if (page < 1)
+            return BadRequest(new { statusCode = 400, message = "Page must be 1 or greater.", errors = Array.Empty<object>() });
+
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
@@ -102,11 +105,11 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Fully replaces an existing category with the provided values.
+    /// Partially updates an existing category with the provided non-null values.
     /// Returns 403 if the category belongs to a different user.
     /// </summary>
     [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] CategoriesDTO dto)
+    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] CategoryUpdateDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
@@ -140,7 +143,8 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Permanently deletes a category from the database.
+    /// Deletes a category from the database. Admin users perform a hard delete;
+    /// regular users perform a soft delete (IsActive = false).
     /// Returns 403 if the category belongs to a different user.
     /// Returns 409 if the category has linked transactions.
     /// </summary>
@@ -151,7 +155,8 @@ public class CategoriesController : ControllerBase
         if (userId == null)
             return UnauthorizedError();
 
-        var (deleted, hasConflict) = await _categoriesService.DeleteCategory(id, userId.Value);
+        var isAdmin = IsAdmin();
+        var (deleted, hasConflict) = await _categoriesService.DeleteCategory(id, userId.Value, isAdmin);
 
         if (hasConflict)
         {
@@ -182,6 +187,17 @@ public class CategoriesController : ControllerBase
             return null;
 
         return userId;
+    }
+
+    /// <summary>
+    /// Determines whether the authenticated user has the Admin role.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true" /> if the user is in the Admin role; otherwise, <see langword="false" />.
+    /// </returns>
+    private bool IsAdmin()
+    {
+        return User.IsInRole("Admin");
     }
 
     /// <summary>

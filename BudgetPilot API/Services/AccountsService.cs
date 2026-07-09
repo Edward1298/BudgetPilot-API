@@ -21,7 +21,7 @@ public class AccountsService
     }
 
     /// <summary>
-    /// Retrieves a paginated list of accounts belonging to the specified user,
+    /// Retrieves a paginated list of active accounts belonging to the specified user,
     /// optionally filtered by account type and/or a partial name match.
     /// </summary>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
@@ -34,7 +34,7 @@ public class AccountsService
         Guid userId, int page, int pageSize, string? type, string? search)
     {
         var query = _context.Accounts
-            .Where(a => a.UserId == userId);
+            .Where(a => a.UserId == userId && a.IsActive);
 
         if (!string.IsNullOrWhiteSpace(type))
             query = query.Where(a => a.Type == type);
@@ -54,33 +54,33 @@ public class AccountsService
     }
 
     /// <summary>
-    /// Retrieves a single account by its unique identifier without applying the
+    /// Retrieves a single active account by its unique identifier without applying the
     /// user ownership filter. Ownership is verified separately by the caller
     /// to distinguish between 403 and 404 responses.
     /// </summary>
     /// <param name="id">The unique identifier of the account to retrieve.</param>
     /// <returns>
-    /// The matching account if found; otherwise, <see langword="null" />.
+    /// The matching active account if found; otherwise, <see langword="null" />.
     /// </returns>
     public async Task<AccountsOBJ?> GetAccountById(Guid id)
     {
         return await _context.Accounts
-            .FirstOrDefaultAsync(a => a.Id == id);
+            .FirstOrDefaultAsync(a => a.Id == id && a.IsActive);
     }
 
     /// <summary>
     /// Creates a new account for the specified user after validating that
-    /// the balance is non-negative for non-credit card account types.
+    /// the balance and interest rate are valid for the account type.
     /// </summary>
     /// <param name="dto">The account data provided by the client.</param>
     /// <param name="userId">The unique identifier of the authenticated user who will own the account.</param>
     /// <returns>The newly created account entity.</returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the balance is negative for a Cash or Bank Account type.
+    /// Thrown when the balance or interest rate is invalid for the account type.
     /// </exception>
     public async Task<AccountsOBJ> CreateAccount(AccountsDTO dto, Guid userId)
     {
-        ValidateBalanceForType(dto.Balance, dto.Type);
+        ValidateBalanceForType(dto.Balance, dto.Type, dto.InterestRate);
 
         var account = new AccountsOBJ
         {
@@ -88,6 +88,7 @@ public class AccountsService
             Name = dto.Name,
             Type = dto.Type,
             Balance = dto.Balance,
+            InterestRate = dto.InterestRate,
             UserId = userId,
             CreatedAt = DateTime.UtcNow
         };
@@ -100,31 +101,45 @@ public class AccountsService
 
     /// <summary>
     /// Updates an existing account with new values after verifying ownership and
-    /// validating balance constraints for the account type.
+    /// validating balance constraints for the account type. Only non-null fields
+    /// in the DTO are applied to the account entity.
     /// </summary>
     /// <param name="id">The unique identifier of the account to update.</param>
-    /// <param name="dto">The updated account data provided by the client.</param>
+    /// <param name="dto">The partial update data provided by the client.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
     /// <returns>
     /// The updated account entity if found and owned by the user;
     /// otherwise, <see langword="null" />.
     /// </returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the balance is negative for a Cash or Bank Account type.
+    /// Thrown when the balance is invalid for the account type, or when the
+    /// interest rate is invalid for a savings account.
     /// </exception>
-    public async Task<AccountsOBJ?> UpdateAccount(Guid id, AccountsDTO dto, Guid userId)
+    public async Task<AccountsOBJ?> UpdateAccount(Guid id, AccountUpdateDTO dto, Guid userId)
     {
-        ValidateBalanceForType(dto.Balance, dto.Type);
-
         var account = await _context.Accounts
-            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
+            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId && a.IsActive);
 
         if (account == null)
             return null;
 
-        account.Name = dto.Name;
-        account.Type = dto.Type;
-        account.Balance = dto.Balance;
+        var newType = dto.Type ?? account.Type;
+        var newBalance = dto.Balance ?? account.Balance;
+        var newInterestRate = dto.InterestRate ?? account.InterestRate;
+
+        ValidateBalanceForType(newBalance, newType, newInterestRate);
+
+        if (dto.Name != null)
+            account.Name = dto.Name;
+
+        if (dto.Type != null)
+            account.Type = dto.Type;
+
+        if (dto.Balance.HasValue)
+            account.Balance = dto.Balance.Value;
+
+        if (dto.InterestRate.HasValue)
+            account.InterestRate = dto.InterestRate;
 
         await _context.SaveChangesAsync();
 
@@ -132,19 +147,21 @@ public class AccountsService
     }
 
     /// <summary>
-    /// Permanently deletes an account from the database after verifying ownership
-    /// and checking for linked transactions.
+    /// Deletes an account from the database after verifying ownership and checking for
+    /// linked transactions. If the caller is an admin, performs a hard delete.
+    /// Otherwise, performs a soft delete by setting IsActive to false.
     /// </summary>
     /// <param name="id">The unique identifier of the account to delete.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
+    /// <param name="isAdmin">Whether the caller has admin privileges.</param>
     /// <returns>
     /// A tuple indicating whether the account was deleted and whether it has
     /// linked transactions that prevent deletion.
     /// </returns>
-    public async Task<(bool Deleted, bool HasConflict)> DeleteAccount(Guid id, Guid userId)
+    public async Task<(bool Deleted, bool HasConflict)> DeleteAccount(Guid id, Guid userId, bool isAdmin)
     {
         var hasTransactions = await _context.Transactions
-            .AnyAsync(t => t.AccountId == id);
+            .AnyAsync(t => t.AccountId == id && t.IsActive);
 
         if (hasTransactions)
             return (false, true);
@@ -155,24 +172,51 @@ public class AccountsService
         if (account == null)
             return (false, false);
 
-        _context.Accounts.Remove(account);
+        if (isAdmin)
+        {
+            _context.Accounts.Remove(account);
+        }
+        else
+        {
+            account.IsActive = false;
+        }
+
         await _context.SaveChangesAsync();
 
         return (true, false);
     }
 
     /// <summary>
-    /// Validates that the balance is non-negative for Cash and Bank Account types.
-    /// Credit Card accounts are allowed to have a negative balance to represent debt.
+    /// Validates that the balance and interest rate are valid for the given account type.
+    /// Cash accounts require balance >= 0. Bank accounts require balance > 0.
+    /// Savings accounts require balance >= 0 and interest rate > 0.
     /// </summary>
     /// <param name="balance">The balance value to validate.</param>
     /// <param name="type">The account type that determines the validation rule.</param>
+    /// <param name="interestRate">The optional interest rate for savings accounts.</param>
     /// <exception cref="ArgumentException">
-    /// Thrown when the balance is negative and the account type is not Credit Card.
+    /// Thrown when the balance or interest rate is invalid for the account type.
     /// </exception>
-    private static void ValidateBalanceForType(decimal balance, string type)
+    private static void ValidateBalanceForType(decimal balance, string type, decimal? interestRate = null)
     {
-        if (type != "creditCard" && balance < 0)
-            throw new ArgumentException("Balance must not be negative for Cash and Bank Account types.");
+        switch (type)
+        {
+            case "cash":
+                if (balance < 0)
+                    throw new ArgumentException("Balance must not be negative for Cash accounts.");
+                break;
+            case "bankAccount":
+                if (balance <= 0)
+                    throw new ArgumentException("Balance must be greater than zero for Bank Account accounts.");
+                break;
+            case "savingsAccount":
+                if (balance < 0)
+                    throw new ArgumentException("Balance must not be negative for Savings accounts.");
+                if (interestRate == null || interestRate <= 0)
+                    throw new ArgumentException("Interest rate is required and must be greater than zero for Savings accounts.");
+                break;
+            default:
+                throw new ArgumentException($"Unknown account type: {type}");
+        }
     }
 }

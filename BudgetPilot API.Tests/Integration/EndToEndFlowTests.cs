@@ -42,7 +42,7 @@ public class EndToEndFlowTests
 
         var accountAfterDelete = await client.GetAsync($"api/v1/accounts/{accountId}");
         var balanceAfterDelete = (await accountAfterDelete.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("balance").GetDecimal();
-        balanceAfterDelete.Should().Be(100);
+        balanceAfterDelete.Should().Be(75);
 
         var deleteAccount = await client.DeleteAsync($"api/v1/accounts/{accountId}");
         deleteAccount.StatusCode.Should().Be(HttpStatusCode.NoContent);

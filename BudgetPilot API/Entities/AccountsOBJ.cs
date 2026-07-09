@@ -46,6 +46,20 @@ namespace BudgetPilot_API.Entities
         public decimal Balance { get; set; }
 
         /// <summary>
+        /// Gets or sets the monthly interest rate for savings accounts.
+        /// Only applicable when Type is "savingsAccount". Null for other account types.
+        /// </summary>
+        [Column("interest_rate")]
+        public decimal? InterestRate { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether this account is active.
+        /// Inactive accounts are excluded from queries (soft delete).
+        /// </summary>
+        [Column("is_active")]
+        public bool IsActive { get; set; } = true;
+
+        /// <summary>
         /// Gets or sets the timestamp when the account was created.
         /// </summary>
         [Column("created_at")]

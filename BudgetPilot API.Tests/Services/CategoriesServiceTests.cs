@@ -20,6 +20,7 @@ public class CategoriesServiceTests
             Name = "Test",
             Email = $"test-{userId}@example.com",
             PasswordHash = "$2a$10$abcdefghijklmnopqrstuvwxycdefghijklmnopqrstuv",
+            RoleId = Integration.TestWebAppFactory.UserRoleId,
             CreatedAt = DateTime.UtcNow
         });
 
@@ -46,7 +47,7 @@ public class CategoriesServiceTests
         await service.CreateCategory(new CategoriesDTO { Name = "Food", Type = "expense" }, userId);
         var (groceries, _) = await service.CreateCategory(new CategoriesDTO { Name = "Groceries", Type = "expense" }, userId);
 
-        var (_, isConflict) = await service.UpdateCategory(groceries!.Id, new CategoriesDTO { Name = "Food", Type = "expense" }, userId);
+        var (_, isConflict) = await service.UpdateCategory(groceries!.Id, new CategoryUpdateDTO { Name = "Food", Type = "expense" }, userId);
 
         isConflict.Should().BeTrue();
     }
@@ -89,7 +90,7 @@ public class CategoriesServiceTests
 
         await db.SaveChangesAsync();
 
-        var (_, hasConflict) = await service.DeleteCategory(category.Id, userId);
+        var (_, hasConflict) = await service.DeleteCategory(category.Id, userId, false);
 
         hasConflict.Should().BeTrue();
     }

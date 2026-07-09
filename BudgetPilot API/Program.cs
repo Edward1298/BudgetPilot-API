@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
+using BudgetPilot_API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,10 +42,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
+builder.Services.AddScoped<RolesService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<AccountsService>();
 builder.Services.AddScoped<CategoriesService>();
 builder.Services.AddScoped<TransactionsService>();
+builder.Services.AddScoped<DataProtectionService>();
+builder.Services.AddScoped<CardsService>();
+builder.Services.AddScoped<StoredProcedureService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

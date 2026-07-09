@@ -52,13 +52,14 @@ public class UsersController : ControllerBase
         }
         catch (ArgumentException ex)
         {
+            var field = ex.Message.Contains("role", StringComparison.OrdinalIgnoreCase) ? "roleId" : "name";
             return BadRequest(new
             {
                 statusCode = 400,
                 message = "Validation failed.",
                 errors = new[]
                 {
-                    new { field = "name", message = ex.Message }
+                    new { field, message = ex.Message }
                 }
             });
         }
@@ -106,6 +107,9 @@ public class UsersController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
+        if (page < 1)
+            return BadRequest(new { statusCode = 400, message = "Page must be 1 or greater.", errors = Array.Empty<object>() });
+
         var (items, totalCount) = await _userService.GetUsers(
             name, email, page, pageSize);
 
@@ -177,6 +181,86 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// Partially updates a user's profile with the provided non-null fields.
+    /// Admin users can update any user; regular users can only update their own profile.
+    /// Requires JWT authentication.
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UserUpdateDTO dto)
+    {
+        var userId = GetUserId();
+        if (userId == null)
+            return UnauthorizedError();
+
+        if (!ModelState.IsValid)
+            return ValidationError();
+
+        var isAdmin = IsAdmin();
+
+        try
+        {
+            var user = await _userService.UpdateUser(id, dto, userId.Value, isAdmin);
+
+            if (user == null)
+                return NotFoundError("User not found.");
+
+            return Ok(user);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return ForbiddenError("You can only update your own profile.");
+        }
+        catch (InvalidOperationException)
+        {
+            return Conflict(new
+            {
+                statusCode = 409,
+                message = "A user with this email already exists.",
+                errors = Array.Empty<object>()
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new
+            {
+                statusCode = 400,
+                message = "Validation failed.",
+                errors = new[]
+                {
+                    new { field = "name", message = ex.Message }
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Deletes a user from the database. Admin users perform a hard delete;
+    /// regular users perform a soft delete (IsActive = false).
+    /// Requires JWT authentication.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteUser(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId == null)
+            return UnauthorizedError();
+
+        var isAdmin = IsAdmin();
+
+        if (!isAdmin && userId.Value != id)
+            return ForbiddenError("You can only delete your own account.");
+
+        var deleted = await _userService.DeleteUser(id, isAdmin);
+
+        if (!deleted)
+            return NotFoundError("User not found.");
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// Extracts the authenticated user's identifier from the JWT claims.
     /// </summary>
     /// <returns>
@@ -191,6 +275,56 @@ public class UsersController : ControllerBase
             return null;
 
         return userId;
+    }
+
+    /// <summary>
+    /// Determines whether the authenticated user has the Admin role.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true" /> if the user is in the Admin role; otherwise, <see langword="false" />.
+    /// </returns>
+    private bool IsAdmin()
+    {
+        return User.IsInRole("Admin");
+    }
+
+    /// <summary>
+    /// Returns a 401 Unauthorized response in the standard error envelope format.
+    /// </summary>
+    private IActionResult UnauthorizedError()
+    {
+        return Unauthorized(new
+        {
+            statusCode = 401,
+            message = "Authentication required.",
+            errors = Array.Empty<object>()
+        });
+    }
+
+    /// <summary>
+    /// Returns a 403 Forbidden response in the standard error envelope format.
+    /// </summary>
+    private IActionResult ForbiddenError(string message)
+    {
+        return StatusCode(403, new
+        {
+            statusCode = 403,
+            message,
+            errors = Array.Empty<object>()
+        });
+    }
+
+    /// <summary>
+    /// Returns a 404 Not Found response in the standard error envelope format.
+    /// </summary>
+    private IActionResult NotFoundError(string message)
+    {
+        return NotFound(new
+        {
+            statusCode = 404,
+            message,
+            errors = Array.Empty<object>()
+        });
     }
 
     /// <summary>

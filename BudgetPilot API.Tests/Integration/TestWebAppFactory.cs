@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using BudgetPilot_API.Entities;
 
 namespace BudgetPilot_API.Tests.Integration;
 
@@ -13,6 +15,16 @@ namespace BudgetPilot_API.Tests.Integration;
     /// </summary>
 public class TestWebAppFactory : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// The fixed identifier for the Admin role seeded in the test database.
+    /// </summary>
+    public static readonly Guid AdminRoleId = new("00000000-0000-0000-0000-000000000001");
+
+    /// <summary>
+    /// The fixed identifier for the User role seeded in the test database.
+    /// </summary>
+    public static readonly Guid UserRoleId = new("00000000-0000-0000-0000-000000000002");
+
     private readonly SqliteConnection _connection;
 
     /// <summary>
@@ -32,6 +44,14 @@ public class TestWebAppFactory : WebApplicationFactory<Program>
     /// <param name="builder">The web host builder used to configure the test server.</param>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureAppConfiguration((context, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Encryption:Key"] = "K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols="
+            });
+        });
+
         builder.ConfigureServices(services =>
         {
             var providerNamespaces = new[]
@@ -66,6 +86,10 @@ public class TestWebAppFactory : WebApplicationFactory<Program>
             using var scope = services.BuildServiceProvider().CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             db.Database.EnsureCreated();
+
+            db.Roles.Add(new RolesOBJ { Id = AdminRoleId, Name = "Admin" });
+            db.Roles.Add(new RolesOBJ { Id = UserRoleId, Name = "User" });
+            db.SaveChanges();
         });
     }
 

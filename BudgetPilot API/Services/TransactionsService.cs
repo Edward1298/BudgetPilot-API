@@ -22,7 +22,7 @@ public class TransactionsService
     }
 
     /// <summary>
-    /// Retrieves a paginated list of transactions belonging to the specified user,
+    /// Retrieves a paginated list of active transactions belonging to the specified user,
     /// optionally filtered by type, account, category, date range, and/or description.
     /// Results are ordered by date descending (newest first).
     /// </summary>
@@ -41,7 +41,7 @@ public class TransactionsService
         Guid? accountId, Guid? categoryId, DateOnly? from, DateOnly? to, string? search)
     {
         var query = _context.Transactions
-            .Where(t => t.UserId == userId);
+            .Where(t => t.UserId == userId && t.IsActive);
 
         if (!string.IsNullOrWhiteSpace(type))
             query = query.Where(t => t.Type == type);
@@ -73,50 +73,67 @@ public class TransactionsService
     }
 
     /// <summary>
-    /// Retrieves a single transaction by its unique identifier without applying the
+    /// Retrieves a single active transaction by its unique identifier without applying the
     /// user ownership filter. Ownership is verified separately by the caller
     /// to distinguish between 403 and 404 responses.
     /// </summary>
     /// <param name="id">The unique identifier of the transaction to retrieve.</param>
     /// <returns>
-    /// The matching transaction if found; otherwise, <see langword="null" />.
+    /// The matching active transaction if found; otherwise, <see langword="null" />.
     /// </returns>
     public async Task<TransactionsOBJ?> GetTransactionById(Guid id)
     {
         return await _context.Transactions
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .FirstOrDefaultAsync(t => t.Id == id && t.IsActive);
     }
 
     /// <summary>
     /// Creates a new transaction for the specified user, verifies that the referenced
-    /// account and category belong to the user, ensures the transaction type matches
-    /// the category type, adjusts the account balance, and persists both atomically.
+    /// account and category belong to the user, derives the transaction type from the
+    /// category, adjusts the account balance, and persists both atomically.
     /// </summary>
     /// <param name="dto">The transaction data provided by the client.</param>
     /// <param name="userId">The unique identifier of the authenticated user who will own the transaction.</param>
     /// <returns>
-    /// The newly created transaction entity if the referenced account and category
-    /// are valid; otherwise, <see langword="null" />.
+    /// A tuple containing the newly created transaction entity, the previous balance,
+    /// and the new balance after applying the transaction effect. Returns null if the
+    /// referenced account or category is not found or not owned by the user.
     /// </returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the transaction type does not match the referenced category's type.
+    /// Thrown when the category type is neither income nor expense.
     /// </exception>
-    public async Task<TransactionsOBJ?> CreateTransaction(TransactionsDTO dto, Guid userId)
+    public async Task<(TransactionsOBJ? Transaction, decimal PreviousBalance, decimal NewBalance)> CreateTransaction(TransactionsDTO dto, Guid userId)
     {
         var account = await _context.Accounts
             .FirstOrDefaultAsync(a => a.Id == dto.AccountId && a.UserId == userId);
 
         if (account == null)
-            return null;
+            return (null, 0, 0);
 
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.UserId == userId);
 
         if (category == null)
-            return null;
+            return (null, 0, 0);
 
-        if (dto.Type != category.Type)
-            throw new ArgumentException("Transaction type must match the referenced category's type.");
+        if (category.Type != "income" && category.Type != "expense")
+            throw new ArgumentException("Category type must be either income or expense.");
+
+        if (category.Type == "expense")
+        {
+            var cards = await _context.Cards
+                .Where(c => c.AccountId == dto.AccountId && c.IsActive)
+                .ToListAsync();
+
+            if (cards.Any(c => c.Type == "debit") && account.Balance < dto.Amount)
+                throw new InvalidOperationException("Insufficient funds.");
+
+            var creditCard = cards.FirstOrDefault(c => c.Type == "credit");
+            if (creditCard != null && creditCard.CurrentBalance + dto.Amount > creditCard.CreditLimit)
+                throw new InvalidOperationException("Credit limit exceeded.");
+        }
+
+        var previousBalance = account.Balance;
 
         var transaction = new TransactionsOBJ
         {
@@ -125,89 +142,129 @@ public class TransactionsService
             AccountId = dto.AccountId,
             CategoryId = dto.CategoryId,
             Amount = dto.Amount,
-            Type = dto.Type,
+            Type = category.Type,
             Description = dto.Description,
             Date = DateOnly.FromDateTime(DateTime.UtcNow)
         };
 
-        ApplyBalanceEffect(account, dto.Amount, dto.Type, reverse: false);
+        ApplyBalanceEffect(account, dto.Amount, category.Type, reverse: false);
+
+        var newBalance = account.Balance;
 
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
 
-        return transaction;
+        return (transaction, previousBalance, newBalance);
     }
 
     /// <summary>
     /// Updates an existing transaction after verifying ownership, reversing the old
-    /// balance effect, applying the new balance effect, and ensuring the new
+    /// balance effect if needed, applying the new balance effect, and ensuring the new
     /// account, category, and type combination is valid. The transaction date is
-    /// never modified.
+    /// never modified. Only non-null fields in the DTO are applied. The transaction
+    /// type is derived from the referenced category.
     /// </summary>
     /// <param name="id">The unique identifier of the transaction to update.</param>
-    /// <param name="dto">The updated transaction data provided by the client.</param>
+    /// <param name="dto">The partial update data provided by the client.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
     /// <returns>
-    /// The updated transaction entity if found and all referenced entities are valid;
-    /// otherwise, <see langword="null" />.
+    /// A tuple containing the updated transaction entity, the previous balance,
+    /// and the new balance after applying the transaction effect. Returns null if
+    /// the transaction or referenced entities are not found or not owned by the user.
     /// </returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the transaction type does not match the referenced category's type.
+    /// Thrown when the category type is neither income nor expense.
     /// </exception>
-    public async Task<TransactionsOBJ?> UpdateTransaction(Guid id, TransactionsDTO dto, Guid userId)
+    public async Task<(TransactionsOBJ? Transaction, decimal PreviousBalance, decimal NewBalance)> UpdateTransaction(Guid id, TransactionUpdateDTO dto, Guid userId)
     {
         var transaction = await _context.Transactions
-            .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId);
+            .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId && t.IsActive);
 
         if (transaction == null)
-            return null;
+            return (null, 0, 0);
 
-        var oldAccount = await _context.Accounts
-            .FirstOrDefaultAsync(a => a.Id == transaction.AccountId && a.UserId == userId);
+        var newAccountId = dto.AccountId ?? transaction.AccountId;
+        var newCategoryId = dto.CategoryId ?? transaction.CategoryId;
+        var newAmount = dto.Amount ?? transaction.Amount;
 
-        if (oldAccount == null)
-            return null;
+        var accountChanged = dto.AccountId.HasValue && dto.AccountId.Value != transaction.AccountId;
+        var categoryChanged = dto.CategoryId.HasValue && dto.CategoryId.Value != transaction.CategoryId;
+        var amountChanged = dto.Amount.HasValue && dto.Amount.Value != transaction.Amount;
 
-        var newAccount = await _context.Accounts
-            .FirstOrDefaultAsync(a => a.Id == dto.AccountId && a.UserId == userId);
+        decimal previousBalance = 0;
+        decimal newBalance = 0;
 
-        if (newAccount == null)
-            return null;
+        if (accountChanged || categoryChanged || amountChanged)
+        {
+            var oldAccount = await _context.Accounts
+                .FirstOrDefaultAsync(a => a.Id == transaction.AccountId && a.UserId == userId);
 
-        var category = await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.UserId == userId);
+            if (oldAccount == null)
+                return (null, 0, 0);
 
-        if (category == null)
-            return null;
+            var category = await _context.Categories
+                .FirstOrDefaultAsync(c => c.Id == newCategoryId && c.UserId == userId && c.IsActive);
 
-        if (dto.Type != category.Type)
-            throw new ArgumentException("Transaction type must match the referenced category's type.");
+            if (category == null)
+                return (null, 0, 0);
 
-        ApplyBalanceEffect(oldAccount, transaction.Amount, transaction.Type, reverse: true);
-        ApplyBalanceEffect(newAccount, dto.Amount, dto.Type, reverse: false);
+            if (category.Type != "income" && category.Type != "expense")
+                throw new ArgumentException("Category type must be either income or expense.");
 
-        transaction.AccountId = dto.AccountId;
-        transaction.CategoryId = dto.CategoryId;
-        transaction.Amount = dto.Amount;
-        transaction.Type = dto.Type;
-        transaction.Description = dto.Description;
+            var newType = category.Type;
+
+            var newAccount = accountChanged
+                ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == newAccountId && a.UserId == userId && a.IsActive)
+                : oldAccount;
+
+            if (newAccount == null)
+                return (null, 0, 0);
+
+            previousBalance = newAccount.Balance;
+
+            ApplyBalanceEffect(oldAccount, transaction.Amount, transaction.Type, reverse: true);
+            ApplyBalanceEffect(newAccount, newAmount, newType, reverse: false);
+
+            newBalance = newAccount.Balance;
+
+            transaction.AccountId = newAccountId;
+            transaction.CategoryId = newCategoryId;
+            transaction.Amount = newAmount;
+            transaction.Type = newType;
+        }
+        else
+        {
+            var account = await _context.Accounts
+                .FirstOrDefaultAsync(a => a.Id == transaction.AccountId && a.UserId == userId);
+
+            if (account == null)
+                return (null, 0, 0);
+
+            previousBalance = account.Balance;
+            newBalance = account.Balance;
+        }
+
+        if (dto.Description != null)
+            transaction.Description = dto.Description;
 
         await _context.SaveChangesAsync();
 
-        return transaction;
+        return (transaction, previousBalance, newBalance);
     }
 
     /// <summary>
-    /// Permanently deletes a transaction after verifying ownership and reverses
-    /// its balance effect on the linked account in a single atomic operation.
+    /// Deletes a transaction after verifying ownership. If the caller is an admin,
+    /// performs a hard delete and reverses the balance effect on the linked account.
+    /// Otherwise, performs a soft delete by setting IsActive to false (balance is NOT reversed).
     /// </summary>
     /// <param name="id">The unique identifier of the transaction to delete.</param>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
+    /// <param name="isAdmin">Whether the caller has admin privileges.</param>
     /// <returns>
     /// <see langword="true" /> if the transaction was found and deleted;
     /// otherwise, <see langword="false" />.
     /// </returns>
-    public async Task<bool> DeleteTransaction(Guid id, Guid userId)
+    public async Task<bool> DeleteTransaction(Guid id, Guid userId, bool isAdmin)
     {
         var transaction = await _context.Transactions
             .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId);
@@ -215,15 +272,23 @@ public class TransactionsService
         if (transaction == null)
             return false;
 
-        var account = await _context.Accounts
-            .FirstOrDefaultAsync(a => a.Id == transaction.AccountId && a.UserId == userId);
+        if (isAdmin)
+        {
+            var account = await _context.Accounts
+                .FirstOrDefaultAsync(a => a.Id == transaction.AccountId && a.UserId == userId);
 
-        if (account == null)
-            return false;
+            if (account == null)
+                return false;
 
-        ApplyBalanceEffect(account, transaction.Amount, transaction.Type, reverse: true);
+            ApplyBalanceEffect(account, transaction.Amount, transaction.Type, reverse: true);
 
-        _context.Transactions.Remove(transaction);
+            _context.Transactions.Remove(transaction);
+        }
+        else
+        {
+            transaction.IsActive = false;
+        }
+
         await _context.SaveChangesAsync();
 
         return true;

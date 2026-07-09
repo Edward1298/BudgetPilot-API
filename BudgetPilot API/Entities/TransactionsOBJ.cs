@@ -63,5 +63,12 @@ namespace BudgetPilot_API.Entities
         /// </summary>
         [Column("date")]
         public DateOnly Date { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether this transaction is active.
+        /// Inactive transactions are excluded from queries (soft delete).
+        /// </summary>
+        [Column("is_active")]
+        public bool IsActive { get; set; } = true;
     }
 }

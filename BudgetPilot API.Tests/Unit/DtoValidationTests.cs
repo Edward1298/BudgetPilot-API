@@ -56,27 +56,11 @@ public class DtoValidationTests
         {
             AccountId = Guid.NewGuid(),
             CategoryId = Guid.NewGuid(),
-            Amount = 0,
-            Type = "expense"
+            Amount = 0
         };
         var results = Validate(dto);
 
         results.Should().Contain(r => r.MemberNames.Contains("Amount"));
-    }
-
-    [Fact]
-    public void TransactionsDTO_Invalid_Type_Fails()
-    {
-        var dto = new TransactionsDTO
-        {
-            AccountId = Guid.NewGuid(),
-            CategoryId = Guid.NewGuid(),
-            Amount = 10,
-            Type = "withdrawal"
-        };
-        var results = Validate(dto);
-
-        results.Should().Contain(r => r.MemberNames.Contains("Type"));
     }
 
     [Fact]
@@ -87,7 +71,6 @@ public class DtoValidationTests
             AccountId = Guid.NewGuid(),
             CategoryId = Guid.NewGuid(),
             Amount = 10,
-            Type = "expense",
             Description = new string('x', 501)
         };
         var results = Validate(dto);
@@ -98,7 +81,7 @@ public class DtoValidationTests
     [Fact]
     public void RegisterDTO_Invalid_Email_Fails()
     {
-        var dto = new RegisterDTO { Name = "Test", Email = "not-an-email", Password = "Password123!" };
+        var dto = new RegisterDTO { Name = "Test", Email = "not-an-email", Password = "Password123!", RoleId = Guid.NewGuid() };
         var results = Validate(dto);
 
         results.Should().Contain(r => r.MemberNames.Contains("Email"));
@@ -107,7 +90,7 @@ public class DtoValidationTests
     [Fact]
     public void RegisterDTO_Short_Password_Fails()
     {
-        var dto = new RegisterDTO { Name = "Test", Email = "test@example.com", Password = "short" };
+        var dto = new RegisterDTO { Name = "Test", Email = "test@example.com", Password = "short", RoleId = Guid.NewGuid() };
         var results = Validate(dto);
 
         results.Should().Contain(r => r.MemberNames.Contains("Password"));

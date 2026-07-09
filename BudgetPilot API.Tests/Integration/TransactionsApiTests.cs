@@ -90,30 +90,6 @@ public class TransactionsApiTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    [Fact]
-    public async Task Create_Type_Mismatch_With_Category_Returns_400_Type_Field()
-    {
-        using var factory = new TestWebAppFactory();
-        var client = factory.CreateClient();
-        await AuthenticateClientAsync(client);
-
-        var account = await client.PostAsJsonAsync("api/v1/accounts", new { name = "Cash", type = "cash", balance = 100 });
-        var accountId = (await account.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-
-        var category = await client.PostAsJsonAsync("api/v1/categories", new { name = "Salary", type = "income" });
-        var categoryId = (await category.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-
-        var dto = new { accountId, categoryId, amount = 50, type = "expense" };
-        var response = await client.PostAsJsonAsync("api/v1/transactions", dto);
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        var error = await response.Content.ReadFromJsonAsync<JsonElement>();
-        var fieldError = error.GetProperty("errors").EnumerateArray().Single();
-        fieldError.GetProperty("field").GetString().Should().Be("type");
-        fieldError.GetProperty("message").GetString().Should().Be("Transaction type must match the referenced category's type.");
-    }
-
     [Theory]
     [InlineData(0)]
     [InlineData(-10)]
@@ -249,7 +225,7 @@ public class TransactionsApiTests
     }
 
     [Fact]
-    public async Task Delete_Reverses_Balance_And_Get_Returns_404()
+    public async Task Delete_Soft_Delete_Does_Not_Reverse_Balance_And_Get_Returns_404()
     {
         using var factory = new TestWebAppFactory();
         var client = factory.CreateClient();
@@ -264,7 +240,7 @@ public class TransactionsApiTests
 
         var account = await client.GetAsync($"api/v1/accounts/{accountId}");
         var balance = (await account.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("balance").GetDecimal();
-        balance.Should().Be(100);
+        balance.Should().Be(80);
 
         var get = await client.GetAsync($"api/v1/transactions/{txId}");
         get.StatusCode.Should().Be(HttpStatusCode.NotFound);

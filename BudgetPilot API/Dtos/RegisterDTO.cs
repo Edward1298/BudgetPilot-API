@@ -32,5 +32,12 @@ namespace BudgetPilot_API.Dtos
         [MinLength(8, ErrorMessage = "Password must be at least 8 characters.")]
         [MaxLength(128, ErrorMessage = "Password must not exceed 128 characters.")]
         public string Password { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the identifier of the role to assign to the new user.
+        /// Must reference an existing role in the roles table.
+        /// </summary>
+        [Required(ErrorMessage = "RoleId is required.")]
+        public Guid RoleId { get; set; }
     }
 }

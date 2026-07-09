@@ -37,5 +37,12 @@ namespace BudgetPilot_API.Entities
         /// </summary>
         [Column("type")]
         public string Type { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets whether this category is active.
+        /// Inactive categories are excluded from queries (soft delete).
+        /// </summary>
+        [Column("is_active")]
+        public bool IsActive { get; set; } = true;
     }
 }

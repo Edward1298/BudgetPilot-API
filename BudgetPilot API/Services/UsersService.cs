@@ -30,12 +30,14 @@ public class UserService
 
     /// <summary>
     /// Registers a new user by normalizing the email, checking for duplicates,
-    /// hashing the password with BCrypt, and persisting the record to the database.
+    /// validating the role exists, hashing the password with BCrypt, and persisting
+    /// the record to the database.
     /// </summary>
     /// <param name="dto">The registration data provided by the client.</param>
     /// <returns>The newly created user entity.</returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the name is empty or whitespace-only after trimming.
+    /// Thrown when the name is empty or whitespace-only after trimming, or when the
+    /// specified RoleId does not exist in the roles table.
     /// </exception>
     /// <exception cref="InvalidOperationException">
     /// Thrown when a user with the same normalized email already exists.
@@ -47,6 +49,10 @@ public class UserService
 
         if (string.IsNullOrWhiteSpace(trimmedName))
             throw new ArgumentException("Name must not be empty or whitespace-only.");
+
+        var roleExists = await _context.Roles.AnyAsync(r => r.Id == dto.RoleId);
+        if (!roleExists)
+            throw new ArgumentException("The specified role does not exist.");
 
         var existingUser = await _context.Users
             .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
@@ -60,6 +66,8 @@ public class UserService
             Name = trimmedName,
             Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+            RoleId = dto.RoleId,
+            IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -71,8 +79,8 @@ public class UserService
 
     /// <summary>
     /// Authenticates a user by email and password, returning JWT token information
-    /// on success. Returns <see langword="null" /> when the email is not found
-    /// or the password does not match.
+    /// on success. The JWT includes the user's role claim. Returns <see langword="null" />
+    /// when the email is not found or the password does not match.
     /// </summary>
     /// <param name="dto">The login credentials provided by the client.</param>
     /// <returns>
@@ -84,7 +92,7 @@ public class UserService
         var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
 
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail && u.IsActive);
 
         if (user == null)
             return null;
@@ -92,14 +100,17 @@ public class UserService
         if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
             return null;
 
+        var role = await _context.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId);
+        var roleName = role?.Name ?? "User";
+
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtOptions.ExpirationMinutes);
-        var token = GenerateJwtToken(user.Id, expiresAt);
+        var token = GenerateJwtToken(user.Id, roleName, expiresAt);
 
         return (Token: token, TokenType: "Bearer", ExpiresAt: expiresAt);
     }
 
     /// <summary>
-    /// Retrieves a paginated list of users, optionally filtered by partial
+    /// Retrieves a paginated list of active users, optionally filtered by partial
     /// name and/or email matches (AND logic), ordered by creation date descending.
     /// </summary>
     /// <param name="name">Optional partial match on the user's display name.</param>
@@ -110,7 +121,9 @@ public class UserService
     public async Task<(List<UsersOBJ> Items, int TotalCount)> GetUsers(
         string? name, string? email, int page, int pageSize)
     {
-        var query = _context.Users.AsQueryable();
+        var query = _context.Users
+            .Where(u => u.IsActive)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(name))
             query = query.Where(u => u.Name.Contains(name));
@@ -130,32 +143,34 @@ public class UserService
     }
 
     /// <summary>
-    /// Retrieves a single user by their unique identifier.
+    /// Retrieves a single active user by their unique identifier.
     /// </summary>
     /// <param name="id">The unique identifier of the user to retrieve.</param>
     /// <returns>
-    /// The matching user if found; otherwise, <see langword="null" />.
+    /// The matching active user if found; otherwise, <see langword="null" />.
     /// </returns>
     public async Task<UsersOBJ?> GetUserById(Guid id)
     {
-        return await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
+        return await _context.Users.FirstOrDefaultAsync(u => u.Id == id && u.IsActive);
     }
 
     /// <summary>
     /// Generates a JWT access token for the specified user with the configured
-    /// issuer, audience, signing key, and expiration time.
+    /// issuer, audience, signing key, expiration time, and role claim.
     /// </summary>
     /// <param name="userId">The unique identifier of the authenticated user.</param>
+    /// <param name="roleName">The name of the user's role (e.g., "Admin" or "User").</param>
     /// <param name="expiresAt">The UTC timestamp at which the token expires.</param>
     /// <returns>The encoded JWT token string.</returns>
-    private string GenerateJwtToken(Guid userId, DateTime expiresAt)
+    private string GenerateJwtToken(Guid userId, string roleName, DateTime expiresAt)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Key));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var claims = new[]
         {
-            new Claim(ClaimTypes.NameIdentifier, userId.ToString())
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+            new Claim(ClaimTypes.Role, roleName)
         };
 
         var token = new JwtSecurityToken(
@@ -167,5 +182,89 @@ public class UserService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    /// <summary>
+    /// Updates an existing user's profile with the provided non-null fields.
+    /// Admin users can update any user; regular users can only update their own profile.
+    /// Validates email uniqueness when the email field is changed.
+    /// </summary>
+    /// <param name="id">The unique identifier of the user to update.</param>
+    /// <param name="dto">The partial update data provided by the client.</param>
+    /// <param name="currentUserId">The unique identifier of the authenticated user making the request.</param>
+    /// <param name="isAdmin">Whether the caller has admin privileges.</param>
+    /// <returns>
+    /// The updated user entity if found and the caller has permission;
+    /// otherwise, <see langword="null" />.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the new email address is already in use by another user.
+    /// </exception>
+    /// <exception cref="UnauthorizedAccessException">
+    /// Thrown when a non-admin user attempts to update another user's profile.
+    /// </exception>
+    public async Task<UsersOBJ?> UpdateUser(Guid id, UserUpdateDTO dto, Guid currentUserId, bool isAdmin)
+    {
+        if (!isAdmin && currentUserId != id)
+            throw new UnauthorizedAccessException("You can only update your own profile.");
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id && u.IsActive);
+
+        if (user == null)
+            return null;
+
+        if (dto.Name != null)
+        {
+            var trimmedName = dto.Name.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedName))
+                throw new ArgumentException("Name must not be empty or whitespace-only.");
+            user.Name = trimmedName;
+        }
+
+        if (dto.Email != null)
+        {
+            var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == normalizedEmail && u.Id != id);
+
+            if (existingUser != null)
+                throw new InvalidOperationException("A user with this email already exists.");
+
+            user.Email = normalizedEmail;
+        }
+
+        await _context.SaveChangesAsync();
+
+        return user;
+    }
+
+    /// <summary>
+    /// Deletes a user from the database. If the caller is an admin, performs a hard delete.
+    /// Otherwise, performs a soft delete by setting IsActive to false.
+    /// </summary>
+    /// <param name="id">The unique identifier of the user to delete.</param>
+    /// <param name="isAdmin">Whether the caller has admin privileges.</param>
+    /// <returns>
+    /// <see langword="true" /> if the user was found and deleted; otherwise, <see langword="false" />.
+    /// </returns>
+    public async Task<bool> DeleteUser(Guid id, bool isAdmin)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user == null)
+            return false;
+
+        if (isAdmin)
+        {
+            _context.Users.Remove(user);
+        }
+        else
+        {
+            user.IsActive = false;
+        }
+
+        await _context.SaveChangesAsync();
+
+        return true;
     }
 }

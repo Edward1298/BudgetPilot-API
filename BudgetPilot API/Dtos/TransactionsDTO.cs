@@ -31,15 +31,6 @@ namespace BudgetPilot_API.Dtos
         public decimal Amount { get; set; }
 
         /// <summary>
-        /// Gets or sets the type of the transaction.
-        /// Must be one of: income, expense and must match the referenced category's type.
-        /// </summary>
-        [Required(ErrorMessage = "Type is required.")]
-        [RegularExpression("^(income|expense)$",
-            ErrorMessage = "Type must be one of: income, expense.")]
-        public string Type { get; set; } = string.Empty;
-
-        /// <summary>
         /// Gets or sets an optional note describing the transaction.
         /// Must not exceed 500 characters when provided.
         /// </summary>

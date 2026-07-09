@@ -21,6 +21,14 @@ public class AccountsApiTests
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
 
+    private static async Task<JsonElement> CreateSavingsAccountAsync(HttpClient client, string name, decimal balance, decimal interestRate)
+    {
+        var dto = new { name, type = "savingsAccount", balance, interestRate };
+        var response = await client.PostAsJsonAsync("api/v1/accounts", dto);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
     [Fact]
     public async Task Create_Returns_201_Location_And_Defaults_Balance_To_Zero()
     {
@@ -75,19 +83,20 @@ public class AccountsApiTests
     }
 
     [Fact]
-    public async Task Create_Negative_Balance_On_CreditCard_Returns_201()
+    public async Task Create_Savings_With_InterestRate_Returns_201()
     {
         using var factory = new TestWebAppFactory();
         var client = factory.CreateClient();
         await AuthenticateClientAsync(client);
 
-        var dto = new { name = "Credit Card", type = "creditCard", balance = -500 };
+        var dto = new { name = "Savings", type = "savingsAccount", balance = 1000, interestRate = 2.5 };
         var response = await client.PostAsJsonAsync("api/v1/accounts", dto);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        json.GetProperty("balance").GetDecimal().Should().Be(-500);
+        json.GetProperty("balance").GetDecimal().Should().Be(1000);
+        json.GetProperty("interestRate").GetDecimal().Should().Be(2.5m);
     }
 
     [Fact]
@@ -98,8 +107,8 @@ public class AccountsApiTests
         await AuthenticateClientAsync(client);
 
         await CreateAccountAsync(client, "Personal Cash", "cash", 100);
-        await CreateAccountAsync(client, "Credit Card", "creditCard", -100);
-        await CreateAccountAsync(client, "Savings Bank", "bankAccount", 1000);
+        await CreateSavingsAccountAsync(client, "Savings Account", 500, 1.5m);
+        await CreateAccountAsync(client, "Bank Account", "bankAccount", 1000);
 
         var response = await client.GetAsync("api/v1/accounts?type=cash&search=Personal");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -209,5 +218,46 @@ public class AccountsApiTests
         var error = await deleteResponse.Content.ReadFromJsonAsync<JsonElement>();
         error.GetProperty("statusCode").GetInt32().Should().Be(409);
         error.GetProperty("errors").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Summary_Unauthenticated_Returns_401()
+    {
+        using var factory = new TestWebAppFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync($"api/v1/accounts/{Guid.NewGuid()}/summary");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Summary_Not_Found_Returns_404()
+    {
+        using var factory = new TestWebAppFactory();
+        var client = factory.CreateClient();
+        await AuthenticateClientAsync(client);
+
+        var response = await client.GetAsync($"api/v1/accounts/{Guid.NewGuid()}/summary");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Summary_Not_Owned_Returns_403()
+    {
+        using var factory = new TestWebAppFactory();
+        var clientA = factory.CreateClient();
+        await AuthenticateClientAsync(clientA);
+        var account = await CreateAccountAsync(clientA, "Account A", "cash", 100);
+        var accountId = account.GetProperty("id").GetGuid();
+
+        var clientB = factory.CreateClient();
+        var userB = await TestUserFixture.RegisterAndLoginAsync(clientB);
+        clientB.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", userB.Token);
+
+        var response = await clientB.GetAsync($"api/v1/accounts/{accountId}/summary");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 }

@@ -20,6 +20,7 @@ public class AccountsServiceTests
             Name = "Test",
             Email = $"test-{userId}@example.com",
             PasswordHash = "$2a$10$abcdefghijklmnopqrstuvwxycdefghijklmnopqrstuv",
+            RoleId = Integration.TestWebAppFactory.UserRoleId,
             CreatedAt = DateTime.UtcNow
         });
 
@@ -44,20 +45,22 @@ public class AccountsServiceTests
     }
 
     [Fact]
-    public async Task CreateAccount_CreditCard_With_Negative_Balance_Succeeds()
+    public async Task CreateAccount_Savings_With_InterestRate_Succeeds()
     {
         var (db, service, userId) = CreateService();
 
         var dto = new AccountsDTO
         {
-            Name = "Credit Card",
-            Type = "creditCard",
-            Balance = -500
+            Name = "Savings",
+            Type = "savingsAccount",
+            Balance = 1000,
+            InterestRate = 2.5m
         };
 
         var account = await service.CreateAccount(dto, userId);
 
-        account.Balance.Should().Be(-500);
+        account.Balance.Should().Be(1000);
+        account.InterestRate.Should().Be(2.5m);
     }
 
     [Fact]
@@ -98,7 +101,7 @@ public class AccountsServiceTests
 
         await db.SaveChangesAsync();
 
-        var (_, hasConflict) = await service.DeleteAccount(account.Id, userId);
+        var (_, hasConflict) = await service.DeleteAccount(account.Id, userId, false);
 
         hasConflict.Should().BeTrue();
     }

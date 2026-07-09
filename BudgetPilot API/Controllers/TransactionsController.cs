@@ -39,6 +39,9 @@ public class TransactionsController : ControllerBase
         [FromQuery] DateOnly? to = null,
         [FromQuery] string? search = null)
     {
+        if (page < 1)
+            return BadRequest(new { statusCode = 400, message = "Page must be 1 or greater.", errors = Array.Empty<object>() });
+
         var userId = GetUserId();
         if (userId == null)
             return UnauthorizedError();
@@ -79,7 +82,8 @@ public class TransactionsController : ControllerBase
 
     /// <summary>
     /// Creates a new transaction for the authenticated user and adjusts the
-    /// linked account's balance accordingly.
+    /// linked account's balance accordingly. Returns the transaction with
+    /// previous and new balance preview.
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateTransaction([FromBody] TransactionsDTO dto)
@@ -93,7 +97,7 @@ public class TransactionsController : ControllerBase
 
         try
         {
-            var transaction = await _transactionsService.CreateTransaction(dto, userId.Value);
+            var (transaction, previousBalance, newBalance) = await _transactionsService.CreateTransaction(dto, userId.Value);
 
             if (transaction == null)
             {
@@ -101,22 +105,45 @@ public class TransactionsController : ControllerBase
                     "Referenced account or category not found or does not belong to you.");
             }
 
+            var response = new
+            {
+                id = transaction.Id,
+                accountId = transaction.AccountId,
+                categoryId = transaction.CategoryId,
+                amount = transaction.Amount,
+                type = transaction.Type,
+                description = transaction.Description,
+                date = transaction.Date,
+                previousBalance,
+                newBalance
+            };
+
             return CreatedAtAction(
-                nameof(GetTransactionById), new { id = transaction.Id }, transaction);
+                nameof(GetTransactionById), new { id = transaction.Id }, response);
         }
         catch (ArgumentException ex)
         {
             return ValidationError(ex.Message, "type");
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new
+            {
+                statusCode = 400,
+                message = ex.Message,
+                errors = Array.Empty<object>()
+            });
+        }
     }
 
     /// <summary>
-    /// Fully replaces an existing transaction with the provided values.
-    /// The transaction date is never modified. Returns 403 if the transaction
-    /// belongs to a different user.
+    /// Partially updates an existing transaction with the provided non-null values.
+    /// The transaction date is never modified. The transaction type is derived from
+    /// the referenced category. Returns the transaction with previous and new balance preview.
+    /// Returns 403 if the transaction belongs to a different user.
     /// </summary>
     [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateTransaction(Guid id, [FromBody] TransactionsDTO dto)
+    public async Task<IActionResult> UpdateTransaction(Guid id, [FromBody] TransactionUpdateDTO dto)
     {
         var userId = GetUserId();
         if (userId == null)
@@ -127,7 +154,7 @@ public class TransactionsController : ControllerBase
 
         try
         {
-            var transaction = await _transactionsService.UpdateTransaction(id, dto, userId.Value);
+            var (transaction, previousBalance, newBalance) = await _transactionsService.UpdateTransaction(id, dto, userId.Value);
 
             if (transaction == null)
             {
@@ -139,7 +166,20 @@ public class TransactionsController : ControllerBase
                     "Transaction not found, or referenced account/category not found or does not belong to you.");
             }
 
-            return Ok(transaction);
+            var response = new
+            {
+                id = transaction.Id,
+                accountId = transaction.AccountId,
+                categoryId = transaction.CategoryId,
+                amount = transaction.Amount,
+                type = transaction.Type,
+                description = transaction.Description,
+                date = transaction.Date,
+                previousBalance,
+                newBalance
+            };
+
+            return Ok(response);
         }
         catch (ArgumentException ex)
         {
@@ -148,8 +188,9 @@ public class TransactionsController : ControllerBase
     }
 
     /// <summary>
-    /// Permanently deletes a transaction and reverses its balance effect on the
-    /// linked account. Returns 403 if the transaction belongs to a different user.
+    /// Deletes a transaction from the database. Admin users perform a hard delete
+    /// (with balance reversal); regular users perform a soft delete (IsActive = false).
+    /// Returns 403 if the transaction belongs to a different user.
     /// </summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteTransaction(Guid id)
@@ -158,7 +199,8 @@ public class TransactionsController : ControllerBase
         if (userId == null)
             return UnauthorizedError();
 
-        var deleted = await _transactionsService.DeleteTransaction(id, userId.Value);
+        var isAdmin = IsAdmin();
+        var deleted = await _transactionsService.DeleteTransaction(id, userId.Value, isAdmin);
 
         if (!deleted)
         {
@@ -184,6 +226,17 @@ public class TransactionsController : ControllerBase
             return null;
 
         return userId;
+    }
+
+    /// <summary>
+    /// Determines whether the authenticated user has the Admin role.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true" /> if the user is in the Admin role; otherwise, <see langword="false" />.
+    /// </returns>
+    private bool IsAdmin()
+    {
+        return User.IsInRole("Admin");
     }
 
     /// <summary>

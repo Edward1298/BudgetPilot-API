@@ -14,7 +14,7 @@ public class UsersApiTests
         var client = factory.CreateClient();
 
         var email = $"register-{Guid.NewGuid()}@example.com";
-        var dto = new { name = "Alice", email, password = "Password123!" };
+        var dto = new { name = "Alice", email, password = "Password123!", roleId = TestWebAppFactory.UserRoleId };
 
         var response = await client.PostAsJsonAsync("api/v1/users/register", dto);
 
@@ -40,7 +40,7 @@ public class UsersApiTests
         var client = factory.CreateClient();
 
         var email = $"dup-{Guid.NewGuid()}@example.com";
-        var dto = new { name = "Alice", email, password = "Password123!" };
+        var dto = new { name = "Alice", email, password = "Password123!", roleId = TestWebAppFactory.UserRoleId };
 
         var first = await client.PostAsJsonAsync("api/v1/users/register", dto);
         first.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -59,7 +59,7 @@ public class UsersApiTests
         using var factory = new TestWebAppFactory();
         var client = factory.CreateClient();
 
-        var dto = new { name = "", email = "not-an-email", password = "short" };
+        var dto = new { name = "", email = "not-an-email", password = "short", roleId = TestWebAppFactory.UserRoleId };
         var response = await client.PostAsJsonAsync("api/v1/users/register", dto);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -96,7 +96,7 @@ public class UsersApiTests
         var client = factory.CreateClient();
 
         var email = $"login-{Guid.NewGuid()}@example.com";
-        await client.PostAsJsonAsync("api/v1/users/register", new { name = "Alice", email, password = "Password123!" });
+        await client.PostAsJsonAsync("api/v1/users/register", new { name = "Alice", email, password = "Password123!", roleId = TestWebAppFactory.UserRoleId });
 
         var response = await client.PostAsJsonAsync("api/v1/users/login", new { email, password = "WrongPassword123!" });
 
@@ -139,7 +139,7 @@ public class UsersApiTests
         var client = factory.CreateClient();
 
         var email = "John@Example.com";
-        await client.PostAsJsonAsync("api/v1/users/register", new { name = "John", email, password = "Password123!" });
+        await client.PostAsJsonAsync("api/v1/users/register", new { name = "John", email, password = "Password123!", roleId = TestWebAppFactory.UserRoleId });
 
         var response = await client.PostAsJsonAsync("api/v1/users/login", new { email = "john@example.com", password = "Password123!" });
 

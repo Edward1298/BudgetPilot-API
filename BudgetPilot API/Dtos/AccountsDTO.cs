@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace BudgetPilot_API.Dtos
 {
     /// <summary>
-    /// Data transfer object for creating or updating an account.
+    /// Data transfer object for creating an account.
     /// Contains the fields accepted from the client request body.
     /// </summary>
     public class AccountsDTO
@@ -18,17 +18,23 @@ namespace BudgetPilot_API.Dtos
 
         /// <summary>
         /// Gets or sets the type of the account.
-        /// Must be one of: cash, creditCard, bankAccount.
+        /// Must be one of: bankAccount, savingsAccount, cash.
         /// </summary>
         [Required(ErrorMessage = "Type is required.")]
-        [RegularExpression("^(cash|creditCard|bankAccount)$",
-            ErrorMessage = "Type must be one of: cash, creditCard, bankAccount.")]
+        [RegularExpression("^(bankAccount|savingsAccount|cash)$",
+            ErrorMessage = "Type must be one of: bankAccount, savingsAccount, cash.")]
         public string Type { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the current balance of the account.
-        /// Defaults to zero. Must be non-negative for <c>cash</c> and <c>bankAccount</c> types.
+        /// Defaults to zero. Validation rules depend on the account type.
         /// </summary>
         public decimal Balance { get; set; }
+
+        /// <summary>
+        /// Gets or sets the monthly interest rate for savings accounts.
+        /// Required and must be greater than zero when Type is "savingsAccount".
+        /// </summary>
+        public decimal? InterestRate { get; set; }
     }
 }

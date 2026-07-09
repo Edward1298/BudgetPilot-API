@@ -20,6 +20,7 @@ public class TransactionsServiceTests
             Name = "Test",
             Email = $"test-{userId}@example.com",
             PasswordHash = "$2a$10$abcdefghijklmnopqrstuvwxycdefghijklmnopqrstuv",
+            RoleId = Integration.TestWebAppFactory.UserRoleId,
             CreatedAt = DateTime.UtcNow
         });
 
@@ -69,8 +70,7 @@ public class TransactionsServiceTests
         {
             AccountId = account.Id,
             CategoryId = category.Id,
-            Amount = 25.25m,
-            Type = "expense"
+            Amount = 25.25m
         };
 
         await service.CreateTransaction(dto, userId);
@@ -89,8 +89,7 @@ public class TransactionsServiceTests
         {
             AccountId = account.Id,
             CategoryId = category.Id,
-            Amount = 123.45m,
-            Type = "income"
+            Amount = 123.45m
         };
 
         await service.CreateTransaction(dto, userId);
@@ -109,19 +108,15 @@ public class TransactionsServiceTests
         {
             AccountId = account.Id,
             CategoryId = category.Id,
-            Amount = 10m,
-            Type = "expense"
+            Amount = 10m
         };
 
-        var transaction = await service.CreateTransaction(createDto, userId);
+        var (transaction, _, _) = await service.CreateTransaction(createDto, userId);
         account.Balance.Should().Be(90m);
 
-        var updateDto = new TransactionsDTO
+        var updateDto = new TransactionUpdateDTO
         {
-            AccountId = account.Id,
-            CategoryId = category.Id,
-            Amount = 35m,
-            Type = "expense"
+            Amount = 35m
         };
 
         await service.UpdateTransaction(transaction!.Id, updateDto, userId);
@@ -141,20 +136,17 @@ public class TransactionsServiceTests
         {
             AccountId = accountA.Id,
             CategoryId = category.Id,
-            Amount = 50m,
-            Type = "expense"
+            Amount = 50m
         };
 
-        var transaction = await service.CreateTransaction(createDto, userId);
+        var (transaction, _, _) = await service.CreateTransaction(createDto, userId);
         accountA.Balance.Should().Be(50m);
         accountB.Balance.Should().Be(200m);
 
-        var updateDto = new TransactionsDTO
+        var updateDto = new TransactionUpdateDTO
         {
             AccountId = accountB.Id,
-            CategoryId = category.Id,
-            Amount = 30m,
-            Type = "expense"
+            Amount = 30m
         };
 
         await service.UpdateTransaction(transaction!.Id, updateDto, userId);
@@ -174,14 +166,13 @@ public class TransactionsServiceTests
         {
             AccountId = account.Id,
             CategoryId = category.Id,
-            Amount = 42.17m,
-            Type = "expense"
+            Amount = 42.17m
         };
 
-        var transaction = await service.CreateTransaction(dto, userId);
+        var (transaction, _, _) = await service.CreateTransaction(dto, userId);
         account.Balance.Should().Be(57.83m);
 
-        await service.DeleteTransaction(transaction!.Id, userId);
+        await service.DeleteTransaction(transaction!.Id, userId, true);
 
         account.Balance.Should().Be(100m);
     }

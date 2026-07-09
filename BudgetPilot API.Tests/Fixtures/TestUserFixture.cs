@@ -17,7 +17,8 @@ public record AuthenticatedUser(Guid Id, string Email, string Token);
 public static class TestUserFixture
 {
     /// <summary>
-    /// Registers a new user with a unique email, logs in, and returns the authenticated user details.
+    /// Registers a new user with a unique email and the default User role,
+    /// logs in, and returns the authenticated user details.
     /// </summary>
     /// <param name="client">The HTTP client used to call the registration and login endpoints.</param>
     /// <returns>An <see cref="AuthenticatedUser"/> containing the user id, email, and bearer token.</returns>
@@ -26,7 +27,7 @@ public static class TestUserFixture
         var email = $"test-{Guid.NewGuid()}@example.com";
         const string password = "Password123!";
 
-        var registerDto = new { name = "Test User", email, password };
+        var registerDto = new { name = "Test User", email, password, roleId = Integration.TestWebAppFactory.UserRoleId };
         var registerResponse = await client.PostAsJsonAsync("api/v1/users/register", registerDto);
         registerResponse.EnsureSuccessStatusCode();
 
