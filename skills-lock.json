@@ -6,6 +6,12 @@
       "sourceType": "autoskills-registry",
       "computedHash": "72fda9e92872cc972eb09648c84258c0cb2143874928c80b087ceddbf8171cb5"
     },
+    "containerize-aspnetcore": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/containerize-aspnetcore/SKILL.md",
+      "computedHash": "23f73cb98109f2a56c0b49b5121fc6132a5fddf1fd3bb145db94085f36f7d205"
+    },
     "csharp-async": {
       "source": "github/awesome-copilot",
       "sourceType": "autoskills-registry",
