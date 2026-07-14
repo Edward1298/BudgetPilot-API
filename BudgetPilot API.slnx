@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="BudgetPilot API/BudgetPilot API.csproj" />
-  <Project Path="BudgetPilot API.Tests/BudgetPilot API.Tests.csproj" />
+  <Project Path="BudgetPilotAPI/BudgetPilotAPI.csproj" />
+  <Project Path="BudgetPilotAPI.Tests/BudgetPilotAPI.Tests.csproj" />
 </Solution>
